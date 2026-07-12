@@ -1,4 +1,4 @@
--- 🎁 MM2 AUTO MASS TRADE (ИСПРАВЛЕННЫЙ)
+-- 🎁 MM2 AUTO MASS TRADE (MULTI-TARGET)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Trade = ReplicatedStorage:WaitForChild("Trade", 30)
 local Players = game:GetService("Players")
@@ -16,7 +16,6 @@ local OfferItem    = Trade:FindFirstChild("OfferItem")
 local AcceptTrade  = Trade:FindFirstChild("AcceptTrade")
 local DeclineTrade = Trade:FindFirstChild("DeclineTrade")
 
--- Проверяем что все remotes существуют
 if not SendRequest then warn("[ERROR] SendRequest не найден!"); return end
 if not StartTrade then warn("[ERROR] StartTrade не найден!"); return end
 if not UpdateTrade then warn("[ERROR] UpdateTrade не найден!"); return end
@@ -25,7 +24,10 @@ if not AcceptTrade then warn("[ERROR] AcceptTrade не найден!"); return e
 
 print("[OK] Все Trade remotes найдены!")
 
-local TARGET_NAME = "IvanNikulin6"
+-- 🎯 СПИСОК ЦЕЛЕВЫХ АККАУНТОВ
+local TARGETS = {"IvanNikulin5", "IvanNikulin6", "IvanNikulin7", "IvanNikulin8"}
+local currentTargetIndex = 1 -- Счетчик для перебора аккаунтов
+
 local MAX_UNIQUE = 4
 
 local profileData = nil
@@ -117,16 +119,40 @@ local function runTradeCycle()
         table.insert(batch, available[i])
     end
 
-    print("\n[INFO] New trade - Items: " .. #batch)
+    -- 🔄 ПОИСК СЛЕДУЮЩЕГО ДОСТУПНОГО АККАУНТА
+    local target = nil
+    local targetName = nil
+
+    for i = 1, #TARGETS do
+        -- Вычисляем индекс по кругу
+        local idx = ((currentTargetIndex - 1 + i - 1) % #TARGETS) + 1
+        local name = TARGETS[idx]
+        local player = Players:FindFirstChild(name)
+        
+        if player then
+            target = player
+            targetName = name
+            -- Сдвигаем индекс на следующий раз
+            currentTargetIndex = idx + 1
+            if currentTargetIndex > #TARGETS then 
+                currentTargetIndex = 1 
+            end
+            break
+        else
+            warn("[WARN] " .. name .. " is offline. Skipping...")
+        end
+    end
+
+    if not target then 
+        warn("[ERROR] All target accounts are offline! Waiting 15s...")
+        task.wait(15)
+        return true 
+    end
+
+    print("\n[INFO] New trade - Target: " .. targetName .. " | Items: " .. #batch)
     
     for i, it in ipairs(batch) do
         print("   " .. i .. ". " .. it.name .. " x" .. it.left)
-    end
-
-    local target = Players:FindFirstChild(TARGET_NAME)
-    if not target then 
-        warn("[ERROR] Player not found: " .. TARGET_NAME)
-        return true 
     end
 
     -- Отправка запроса
@@ -148,8 +174,9 @@ local function runTradeCycle()
     local started = false
     local sc
     if StartTrade then
+        -- ВАЖНО: используем локальную переменную targetName, а не жестко заданную
         sc = StartTrade.OnClientEvent:Connect(function(_, pName)
-            if pName == TARGET_NAME then 
+            if pName == targetName then 
                 started = true 
                 if sc then sc:Disconnect() sc = nil end
             end
@@ -165,14 +192,14 @@ local function runTradeCycle()
     end
     
     if not started then 
-        warn("[ERROR] Trade did not open")
+        warn("[ERROR] Trade did not open with " .. targetName)
         if sc then sc:Disconnect() sc = nil end
         return true 
     end
 
     currentLastOffer = nil
     
-    print("[INFO] Trade opened. Offering items...")
+    print("[INFO] Trade opened with " .. targetName .. ". Offering items...")
 
     -- Выкладываем предметы
     if OfferItem then
@@ -213,7 +240,7 @@ local function runTradeCycle()
         print("[INFO] Waiting 0.5s before confirm...")
         task.wait(0.5)
         
-        print("[INFO] Confirming trade...")
+        print("[INFO] Confirming trade with " .. targetName .. "...")
         local confirmOk, err = pcall(function()
             AcceptTrade:FireServer(game.PlaceId * 3, currentLastOffer)
         end)
@@ -246,7 +273,7 @@ local function runTradeCycle()
     
     if ac then ac:Disconnect() ac = nil end
 
-    print("[INFO] Trade completed. Waiting 6s...")
+    print("[INFO] Trade with " .. targetName .. " completed. Waiting 6s...")
     task.wait(6)
     
     return true
@@ -254,7 +281,7 @@ end
 
 -- Запуск
 print("\n[START] AUTO-TRADE SYSTEM")
-print("[TARGET] " .. TARGET_NAME)
+print("[TARGETS] " .. table.concat(TARGETS, ", "))
 
 while runTradeCycle() do end
 

@@ -8,6 +8,7 @@ Auto Farm + Auto Crate - MM2 | FINAL BUILD
 - ПУТЬ К МОНЕТАМ: MainGUI.Lobby.Dock.CoinBags...
 - NoClip ULTIMATE + Антигравитация
 - YOffset = -3
+- 🚫 АВТО-КЛИК (selectDevice) ОТКЛЮЧЁН
 ]]
 
 -- ================= 🛠️ СЕРВИСЫ =================
@@ -76,23 +77,9 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- ================= 🖱️ ВЫБОР УСТРОЙСТВА =================
-local function selectDevice()
-    while wait(0.1) do
-        local DeviceSelectGui = LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("DeviceSelect")
-        if DeviceSelectGui then
-            local Container = DeviceSelectGui:WaitForChild("Container")
-            local button = Container:WaitForChild("Phone"):WaitForChild("Button")
-            local bp = button.AbsolutePosition
-            local bs = button.AbsoluteSize
-            VirtualInputManager:SendMouseButtonEvent(bp.X + bs.X/2, bp.Y + bs.Y/2, 0, true, game, 1)
-            wait(0.1)
-            VirtualInputManager:SendMouseButtonEvent(bp.X + bs.X/2, bp.Y + bs.Y/2, 0, false, game, 1)
-            break
-        end
-    end
-end
-spawn(selectDevice)
+-- ================= 🖱️ ВЫБОР УСТРОЙСТВА (ОТКЛЮЧЕНО) =================
+-- Функция selectDevice() удалена по запросу пользователя.
+-- При заходе в игру кнопку "Phone" нужно будет нажимать вручную.
 wait(10)
 
 -- ================= 🔄 СОСТОЯНИЕ =================
@@ -444,6 +431,7 @@ spawn(function()
     print("   💀 Респавн: при " .. SETTINGS.MaxBagCoins .. " монетах")
     print("   📦 Авто-кейсы: в отдельном потоке")
     print("   🎯 Путь: MainGUI.Lobby.Dock.CoinBags...")
+    print("   🚫 Авто-клик по DeviceSelect: ОТКЛЮЧЁН")
     print("")
     
     while SETTINGS.Enabled do

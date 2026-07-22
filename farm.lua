@@ -373,7 +373,7 @@ local OpenCrate = Shop:WaitForChild("OpenCrate")
 local BoxController = Shop:WaitForChild("BoxController")
 
 local boxes = {
-  "KnifeBox2", "KnifeBox4"
+  "KnifeBox1", "KnifeBox2", "KnifeBox3", "KnifeBox4", "KnifeBox5", "GunBox1", "GunBox3"
 }
 
 local currencies = {"Coins", "Gems", "Key"}

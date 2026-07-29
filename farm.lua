@@ -1,5 +1,3 @@
-setfpscap(25)
-
 --[[
 Auto Farm + Auto Crate - MM2 | FINAL BUILD
 - Скорость 20 studs/sec (постоянная)

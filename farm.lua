@@ -1,7 +1,8 @@
 --[[
-Auto Farm + Auto Crate - MM2 | FINAL BUILD
+Auto Farm + Auto Crate + Summer Box '26 - MM2 | FINAL BUILD
 - Скорость 20 studs/sec (постоянная)
 - АВТО-КЕЙСЫ: простой цикл (проверка по факту)
+- SUMMER BOX '26: авто-открытие за Shells (120 шт)
 - РЕСПАВН: Health=0 + ChangeState(Dead)
 - ПУТЬ К МОНЕТАМ: MainGUI.Lobby.Dock.CoinBags...
 - NoClip ULTIMATE + Антигравитация
@@ -31,6 +32,10 @@ local SETTINGS = {
     SpawnWaitTime = 3.0,
     YOffset = -2,
     ReconnectDelay = 2,
+    -- Summer Box '26
+    SummerBoxEnabled = true,
+    SummerBoxCost = 120,
+    SummerBoxDelay = 2.5,
 }
 
 local MAX_IGNORED = 10
@@ -240,7 +245,6 @@ local function getBagCoins()
     
     local function sf(p, n) return p and p:FindFirstChild(n) end
     
-    -- Правильный путь: MainGUI.Lobby.Dock.CoinBags.Container.Coin.CurrencyFrame.Icon.Coins
     local obj = sf(sf(sf(sf(sf(sf(sf(sf(
         playerGui, "MainGUI"), 
         "Lobby"), 
@@ -259,6 +263,40 @@ local function getBagCoins()
     
     local text = obj:IsA("TextLabel") and obj.Text or ""
     return tonumber(string.match(text, "%d+") or "0") or 0
+end
+
+-- 🐚 БАЛАНС SHELLS (Summer Box '26)
+local function getShells()
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not playerGui then return 0 end
+    
+    local function sf(p, n) return p and p:FindFirstChild(n) end
+    
+    -- Перебираем возможные пути к UI Shells
+    local paths = {
+        {"MainGUI", "Lobby", "Dock", "CoinBags", "Container", "Shell", "CurrencyFrame", "Icon", "Shells"},
+        {"MainGUI", "Lobby", "Dock", "CoinBags", "Container", "Shells", "CurrencyFrame", "Icon", "Shells"},
+        {"MainGUI", "Lobby", "Dock", "SummerCurrency", "CurrencyFrame", "Icon", "Shells"},
+        {"MainGUI", "Lobby", "TopBar", "Shells", "Amount"},
+        {"MainGUI", "Lobby", "TopBar", "Currency", "Shells", "Amount"},
+        {"MainGUI", "Lobby", "Currency", "Shells", "Value"},
+        {"MainGUI", "Shop", "SummerBox", "Currency", "Amount"},
+    }
+    
+    for _, path in ipairs(paths) do
+        local obj = playerGui
+        for _, name in ipairs(path) do
+            obj = sf(obj, name)
+            if not obj then break end
+        end
+        if obj and (obj:IsA("TextLabel") or obj:IsA("TextButton")) then
+            local text = obj.Text or ""
+            local num = tonumber(string.match(text, "%d+") or "0")
+            if num and num >= 0 then return num end
+        end
+    end
+    
+    return 0
 end
 
 -- ================= 💀 РЕСПАВН =================
@@ -365,7 +403,7 @@ local function tweenToTarget(hrp, targetPos)
     currentTween:Play()
 end
 
--- =================  АВТО-КЕЙСЫ (ПРОСТОЙ ЦИКЛ) =================
+-- =================  АВТО-КЕЙСЫ (ОБЫЧНЫЕ) =================
 local Shop = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Shop")
 local OpenCrate = Shop:WaitForChild("OpenCrate")
 local BoxController = Shop:WaitForChild("BoxController")
@@ -420,6 +458,103 @@ spawn(function()
     end
 end)
 
+-- ================= 🐚 АВТО-ОТКРЫТИЕ SUMMER BOX '26 =================
+-- Перебор возможных ID бокса (на случай если в игре называется иначе)
+local SUMMER_BOX_IDS = {
+    "SummerBox26",
+    "SummerBox2026",
+    "SummerEventBox",
+    "Box_Summer26",
+    "Summer26Box",
+    "SummerBox",
+}
+
+local function detectSummerBoxId()
+    -- Пытаемся найти ID бокса в магазине/ремоутах
+    local shopGui = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("MainGUI")
+    if shopGui then
+        -- Ищем в UI упоминания Summer
+        local found = nil
+        local function search(parent, depth)
+            if depth > 6 or found then return end
+            for _, child in ipairs(parent:GetChildren()) do
+                if child:IsA("TextLabel") or child:IsA("TextButton") then
+                    local t = child.Text or ""
+                    if t:lower():find("summer") and t:find("26") then
+                        found = child.Name
+                        return
+                    end
+                end
+                search(child, depth + 1)
+            end
+        end
+        pcall(function() search(shopGui, 0) end)
+        if found then return found end
+    end
+    return SUMMER_BOX_IDS[1] -- по умолчанию
+end
+
+local function openSummerBox(boxId)
+    local shells = getShells()
+    if shells < SETTINGS.SummerBoxCost then
+        return false, shells
+    end
+    
+    local ok, result = pcall(function()
+        return OpenCrate:InvokeServer(boxId, "MysteryBox", "Shells")
+    end)
+    
+    if ok and result then
+        pcall(function()
+            BoxController:Fire({{MysteryBoxId = boxId, RewardedItemId = result}})
+        end)
+        print("🐚 [SUMMER] ✅ Открыт " .. boxId .. "! Выпало:", result)
+        return true, shells - SETTINGS.SummerBoxCost
+    end
+    
+    return false, shells
+end
+
+spawn(function()
+    if not SETTINGS.SummerBoxEnabled then
+        print("🐚 [SUMMER] Auto Summer Box '26 отключён")
+        return
+    end
+    
+    wait(5) -- ждём загрузки UI
+    local detectedId = detectSummerBoxId()
+    print("🐚 [SUMMER] Auto Summer Box '26 запущен")
+    print("   💰 Цена: " .. SETTINGS.SummerBoxCost .. " Shells")
+    print("   📦 ID бокса: " .. detectedId)
+    
+    local openedCount = 0
+    local failedCount = 0
+    local lastShells = 0
+    
+    while SETTINGS.Enabled do
+        local success, currentShells = openSummerBox(detectedId)
+        
+        if success then
+            openedCount = openedCount + 1
+            print("🐚 [SUMMER] Открыто: " .. openedCount .. " | Осталось Shells: ~" .. tostring(currentShells))
+            wait(SETTINGS.SummerBoxDelay)
+        else
+            failedCount = failedCount + 1
+            
+            if currentShells ~= lastShells then
+                lastShells = currentShells
+                print("🐚 [SUMMER] Баланс: " .. tostring(currentShells) .. "/" .. SETTINGS.SummerBoxCost .. " Shells")
+            end
+            
+            if failedCount % 20 == 0 then
+                print("⏳ [SUMMER] Ждём Shells... Попыток: " .. failedCount)
+            end
+            
+            wait(5)
+        end
+    end
+end)
+
 -- ================= 🛡️ ANTI-AFK =================
 spawn(function()
     while wait(120) do
@@ -437,10 +572,11 @@ local coinCounter = 0
 local lastTarget = nil
 
 spawn(function()
-    print("✅ AUTO FARM + AUTO CRATE ACTIVE")
+    print("✅ AUTO FARM + AUTO CRATE + SUMMER BOX '26 ACTIVE")
     print("   Speed: " .. SETTINGS.MoveSpeed .. " | YOffset: " .. SETTINGS.YOffset)
     print("   💀 Респавн: при " .. SETTINGS.MaxBagCoins .. " монетах")
     print("   📦 Авто-кейсы: в отдельном потоке")
+    print("   🐚 Summer Box '26: " .. (SETTINGS.SummerBoxEnabled and "ВКЛ" or "ВЫКЛ") .. " | Цена: " .. SETTINGS.SummerBoxCost .. " Shells")
     print("   🎯 Путь: MainGUI.Lobby.Dock.CoinBags...")
     print("")
     

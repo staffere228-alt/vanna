@@ -25,7 +25,8 @@ if not AcceptTrade then warn("[ERROR] AcceptTrade не найден!"); return e
 print("[OK] Все Trade remotes найдены!")
 
 -- 🎯 СПИСОК ЦЕЛЕВЫХ АККАУНТОВ
-local TARGETS = {"IvanNikulin5", "IvanNikulin6", "IvanNikulin7", "IvanNikulin8", "IvanNikulin9", "IvanNikulin10", "IvanNikulin15", "IvanNikulin12", "SaxarokNikulin18", "SaxarokNikulin19", "SaxarokNikulin20", "SaxarokNikulin21"}
+local TARGETS = {"IvanNikulin5", "IvanNikulin6", "IvanNikulin7", "IvanNikulin8", "IvanNikulin9", "IvanNikulin10", "IvanNikulin15", "IvanNikulin12",
+"SaxarokNikulin18", "SaxarokNikulin19", "SaxarokNikulin20", "SaxarokNikulin21"}
 local currentTargetIndex = 1 -- Счетчик для перебора аккаунтов
 
 local MAX_UNIQUE = 4

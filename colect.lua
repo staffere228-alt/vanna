@@ -1,300 +1,208 @@
--- 🎁 MM2 AUTO MASS TRADE (MULTI-TARGET)
+-- 📦 AUTO ACCEPT TRADE + DECLINE AFTER 10 SEC
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Trade = ReplicatedStorage:WaitForChild("Trade", 30)
-local Players = game:GetService("Players")
-local VirtualUser = game:GetService("VirtualUser") -- ✅ Добавлено для Anti-AFK
+local Trade = ReplicatedStorage:WaitForChild("Trade")
 
-if not Trade then 
-    warn("[ERROR] Trade not found")
-    return 
+local AcceptRequest = Trade:WaitForChild("AcceptRequest")
+local UpdateTrade   = Trade:WaitForChild("UpdateTrade")
+local AcceptTrade   = Trade:WaitForChild("AcceptTrade")
+local StartTrade    = Trade:WaitForChild("StartTrade")
+local DeclineTrade  = Trade:WaitForChild("DeclineTrade")
+
+local isInTrade = false
+local lastOffer = nil
+local tradeStartTime = 0
+
+local function resetTrade()
+    isInTrade = false
+    lastOffer = nil
+    tradeStartTime = 0
 end
 
--- ✅ ПРОВЕРКА ВСЕХ REMOTE ОБЪЕКТОВ
-local SendRequest  = Trade:FindFirstChild("SendRequest")
-local StartTrade   = Trade:FindFirstChild("StartTrade")
-local UpdateTrade  = Trade:FindFirstChild("UpdateTrade")
-local OfferItem    = Trade:FindFirstChild("OfferItem")
-local AcceptTrade  = Trade:FindFirstChild("AcceptTrade")
-local DeclineTrade = Trade:FindFirstChild("DeclineTrade")
-
-if not SendRequest then warn("[ERROR] SendRequest не найден!"); return end
-if not StartTrade then warn("[ERROR] StartTrade не найден!"); return end
-if not UpdateTrade then warn("[ERROR] UpdateTrade не найден!"); return end
-if not OfferItem then warn("[ERROR] OfferItem не найден!"); return end
-if not AcceptTrade then warn("[ERROR] AcceptTrade не найден!"); return end
-
-print("[OK] Все Trade remotes найдены!")
-
--- 🎯 СПИСОК ЦЕЛЕВЫХ АККАУНТОВ
-local TARGETS = {"IvanNikulin5", "IvanNikulin6", "IvanNikulin7", "IvanNikulin8", "IvanNikulin9", "IvanNikulin10", "IvanNikulin15", "IvanNikulin12",
-"SaxarokNikulin18", "SaxarokNikulin19", "SaxarokNikulin20", "SaxarokNikulin21"}
-local currentTargetIndex = 1 -- Счетчик для перебора аккаунтов
-
-local MAX_UNIQUE = 4
-
-local profileData = nil
-local currentLastOffer = nil
-local itemsGiven = {}
-
-print("[INFO] Loading ProfileData...")
-
-local success, result = pcall(function()
-    local modules = ReplicatedStorage:FindFirstChild("Modules")
-    if not modules then
-        warn("[ERROR] Modules folder not found!")
-        return nil
-    end
-    
-    local profileDataModule = modules:FindFirstChild("ProfileData")
-    if not profileDataModule then
-        warn("[ERROR] ProfileData module not found!")
-        return nil
-    end
-    
-    return require(profileDataModule)
+-- Трейд начался
+StartTrade.OnClientEvent:Connect(function(data, partnerName)
+    isInTrade = true
+    lastOffer = nil
+    tradeStartTime = os.clock()
+    print("✅ Trade started")
 end)
 
-if not success or not result then
-    warn("[ERROR] Failed to load ProfileData: " .. tostring(result))
-    return 
-end
+-- Трейд отклонён/закрыт
+DeclineTrade.OnClientEvent:Connect(function()
+    resetTrade()
+    print("❌ Trade declined/ended")
+end)
 
-profileData = result
-print("[OK] ProfileData loaded")
+-- Трейд завершён
+AcceptTrade.OnClientEvent:Connect(function()
+    resetTrade()
+    print("🎉 Trade completed")
+end)
 
--- Получение доступных предметов
-local function getAvailableItems()
-    local items = {}
-    
-    if not profileData then
-        warn("[ERROR] ProfileData is nil!")
-        return items
-    end
-    
-    if profileData.Weapons and profileData.Weapons.Owned then
-        for name, amount in pairs(profileData.Weapons.Owned) do
-            if name ~= "DefaultKnife" and name ~= "DefaultGun" and type(amount) == "number" and amount > 0 then
-                local given = itemsGiven[name] or 0
-                local left = amount - given
-                if left > 0 then
-                    table.insert(items, {name = name, type = "Weapons", left = left})
-                end
-            end
-        end
-    end
-    
-    if profileData.Pets and profileData.Pets.Owned then
-        for name, amount in pairs(profileData.Pets.Owned) do
-            if type(amount) == "number" and amount > 0 then
-                local given = itemsGiven[name] or 0
-                local left = amount - given
-                if left > 0 then
-                    table.insert(items, {name = name, type = "Pets", left = left})
-                end
-            end
-        end
-    end
-    
-    return items
-end
-
--- Отслеживание LastOffer
+-- Получаем обновления трейда
 UpdateTrade.OnClientEvent:Connect(function(data)
-    if data and data.LastOffer then 
-        currentLastOffer = data.LastOffer 
+    if not isInTrade then
+        isInTrade = true
+        tradeStartTime = os.clock()
+    end
+
+    if type(data) == "table" then
+        lastOffer = data.LastOffer or data.Offer or lastOffer
+    else
+        lastOffer = data
     end
 end)
 
--- Основная функция трейда
-local function runTradeCycle()
-    local available = getAvailableItems()
-    
-    if #available == 0 then
-        print("\n[SUCCESS] ALL ITEMS TRADED!")
-        return false
-    end
-
-    local batch = {}
-    local maxItems = math.min(MAX_UNIQUE, #available)
-    
-    for i = 1, maxItems do
-        table.insert(batch, available[i])
-    end
-
-    -- 🔄 ПОИСК СЛЕДУЮЩЕГО ДОСТУПНОГО АККАУНТА
-    local target = nil
-    local targetName = nil
-
-    for i = 1, #TARGETS do
-        -- Вычисляем индекс по кругу
-        local idx = ((currentTargetIndex - 1 + i - 1) % #TARGETS) + 1
-        local name = TARGETS[idx]
-        local player = Players:FindFirstChild(name)
-        
-        if player then
-            target = player
-            targetName = name
-            -- Сдвигаем индекс на следующий раз
-            currentTargetIndex = idx + 1
-            if currentTargetIndex > #TARGETS then 
-                currentTargetIndex = 1 
-            end
-            break
-        else
-            warn("[WARN] " .. name .. " is offline. Skipping...")
+-- Принимаем входящие запросы
+task.spawn(function()
+    while task.wait(1) do
+        if not isInTrade then
+            pcall(function()
+                AcceptRequest:FireServer()
+            end)
         end
     end
+end)
 
-    if not target then 
-        warn("[ERROR] All target accounts are offline! Waiting 15s...")
-        task.wait(15)
-        return true 
-    end
+-- Постоянно подтверждаем трейд
+task.spawn(function()
+    while task.wait(0.3) do
+        if isInTrade then
+            pcall(function()
+                AcceptTrade:FireServer()
+            end)
 
-    print("\n[INFO] New trade - Target: " .. targetName .. " | Items: " .. #batch)
-    
-    for i, it in ipairs(batch) do
-        print("   " .. i .. ". " .. it.name .. " x" .. it.left)
-    end
-
-    -- Отправка запроса
-    if SendRequest then
-        local reqOk, err = pcall(function() 
-            return SendRequest:InvokeServer(target) 
-        end)
-        
-        if not reqOk then 
-            warn("[ERROR] Request failed: " .. tostring(err))
-            return true 
-        end
-    else
-        warn("[ERROR] SendRequest is nil!")
-        return true
-    end
-
-    -- Ждём StartTrade
-    local started = false
-    local sc
-    if StartTrade then
-        -- ВАЖНО: используем локальную переменную targetName, а не жестко заданную
-        sc = StartTrade.OnClientEvent:Connect(function(_, pName)
-            if pName == targetName then 
-                started = true 
-                if sc then sc:Disconnect() sc = nil end
-            end
-        end)
-    else
-        warn("[ERROR] StartTrade is nil!")
-        return true
-    end
-    
-    local t0 = tick()
-    while not started and tick() - t0 < 10 do 
-        task.wait(0.5) 
-    end
-    
-    if not started then 
-        warn("[ERROR] Trade did not open with " .. targetName)
-        if sc then sc:Disconnect() sc = nil end
-        return true 
-    end
-
-    currentLastOffer = nil
-    
-    print("[INFO] Trade opened with " .. targetName .. ". Offering items...")
-
-    -- Выкладываем предметы
-    if OfferItem then
-        for _, it in ipairs(batch) do
-            for i = 1, it.left do
-                local ok, err = pcall(function() 
-                    OfferItem:FireServer(it.name, it.type) 
+            if lastOffer ~= nil then
+                pcall(function()
+                    AcceptTrade:FireServer(game.PlaceId * 3, lastOffer)
                 end)
-                
-                if ok then
-                    itemsGiven[it.name] = (itemsGiven[it.name] or 0) + 1
-                    print("   [OK] " .. it.name .. " (" .. i .. "/" .. it.left .. ")")
-                else
-                    warn("   [ERROR] " .. it.name .. ": " .. tostring(err))
-                end
-                
-                task.wait(0.25)
             end
         end
-    else
-        warn("[ERROR] OfferItem is nil!")
     end
-    
-    -- Ждём кулдаун
-    print("[INFO] Waiting 6s cooldown...")
-    task.wait(6)
-    
-    -- Ждём LastOffer
-    if not currentLastOffer then
-        print("[INFO] Waiting for LastOffer...")
-        local t1 = tick()
-        while not currentLastOffer and tick() - t1 < 5 do
-            task.wait(0.5)
+end)
+
+-- Если трейд висит дольше 10 секунд — отклоняем
+task.spawn(function()
+    while task.wait(0.5) do
+        if isInTrade and tradeStartTime ~= 0 then
+            local elapsed = os.clock() - tradeStartTime
+
+            if elapsed >= 10 then
+                print("⏰ Trade stuck for 10s, declining...")
+
+                pcall(function()
+                    DeclineTrade:FireServer()
+                end)
+
+                task.delay(1, function()
+                    if isInTrade then
+                        resetTrade()
+                    end
+                end)
+            end
         end
     end
+end)
 
-    if currentLastOffer and AcceptTrade then
-        print("[INFO] Waiting 0.5s before confirm...")
-        task.wait(0.5)
-        
-        print("[INFO] Confirming trade with " .. targetName .. "...")
-        local confirmOk, err = pcall(function()
-            AcceptTrade:FireServer(game.PlaceId * 3, currentLastOffer)
-        end)
-        
-        if not confirmOk then
-            warn("[ERROR] Confirm failed: " .. tostring(err))
-        end
-    else
-        if not AcceptTrade then
-            warn("[ERROR] AcceptTrade is nil!")
-        else
-            warn("[WARN] No LastOffer received")
-        end
-    end
+print("🟢 Auto Accept + Decline after 10s loaded")
 
-    -- Ждём завершения
-    local done = false
-    local ac
-    if AcceptTrade then
-        ac = AcceptTrade.OnClientEvent:Connect(function() 
-            done = true 
-            if ac then ac:Disconnect() ac = nil end
-        end)
-    end
-    
-    local t2 = tick()
-    while not done and tick() - t2 < 15 do 
-        task.wait(0.5) 
-    end
-    
-    if ac then ac:Disconnect() ac = nil end
+-- ==========================================================
+-- ▶ ANTI-AFK + RECONNECT
+-- ==========================================================
 
-    print("[INFO] Trade with " .. targetName .. " completed. Waiting 6s...")
-    task.wait(6)
-    
-    return true
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+-- Ждём LocalPlayer, если вдруг ещё не доступен
+while not LocalPlayer do
+    task.wait(0.1)
+    LocalPlayer = Players.LocalPlayer
 end
 
--- ✅ ANTI-AFK (Запускается в фоне и не прерывает основной цикл)
+local TeleportService = game:GetService("TeleportService")
+local GuiService = game:GetService("GuiService")
+local RunService = game:GetService("RunService")
+
+local VirtualUser
+pcall(function()
+    VirtualUser = game:GetService("VirtualUser")
+end)
+
+local SETTINGS = {
+    ReconnectDelay = 3, -- задержка перед реконнектом в секундах
+}
+
+local isReconnecting = false
+
+-- Анти-АФК
 spawn(function()
-    while task.wait(120) do -- заменил wait на task.wait для стабильности
+    while wait(120) do
         pcall(function()
-            VirtualUser:CaptureController()
-            VirtualUser:ClickButton2(Vector2.new(math.random(100, 800), math.random(100, 600)))
+            if VirtualUser then
+                VirtualUser:CaptureController()
+                VirtualUser:ClickButton2(Vector2.new(math.random(100, 800), math.random(100, 600)))
+            end
         end)
     end
 end)
 
--- Запуск
-print("\n[START] AUTO-TRADE SYSTEM")
-print("[TARGETS] " .. table.concat(TARGETS, ", "))
+-- Реконнект
+local function forceReconnect(reason)
+    if isReconnecting then return end
 
-while runTradeCycle() do end
+    -- Чтобы в Studio не пытался телепортировать и не блокировал скрипт
+    if RunService:IsStudio() then
+        warn("🔌 Reconnect skipped in Studio: " .. tostring(reason))
+        return
+    end
 
-print("[DONE] Finished")
+    isReconnecting = true
+    print("🔌 Reconnecting: " .. tostring(reason))
+
+    spawn(function()
+        wait(SETTINGS.ReconnectDelay)
+        pcall(function()
+            TeleportService:Teleport(game.PlaceId, LocalPlayer)
+        end)
+    end)
+
+    while true do
+        wait(1)
+        if not LocalPlayer or not LocalPlayer.Parent then
+            break
+        end
+    end
+end
+
+pcall(function()
+    GuiService.ErrorMessageChanged:Connect(function(errorMessage)
+        if errorMessage and errorMessage ~= "" then
+            forceReconnect("Error: " .. errorMessage)
+        end
+    end)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    if player == LocalPlayer then
+        forceReconnect("PlayerRemoving")
+    end
+end)
+
+LocalPlayer.OnTeleport:Connect(function(state)
+    if state == Enum.TeleportState.Failed or state == Enum.TeleportState.Started then
+        forceReconnect("OnTeleport: " .. tostring(state))
+    end
+end)
+
+local consecutiveFailures = 0
+RunService.Heartbeat:Connect(function()
+    if not LocalPlayer or not LocalPlayer.Parent then
+        consecutiveFailures = consecutiveFailures + 1
+        if consecutiveFailures >= 3 and not isReconnecting then
+            forceReconnect("Heartbeat")
+        end
+    else
+        consecutiveFailures = 0
+    end
+end)
+
+print("🟢 Anti-AFK + Reconnect loaded")

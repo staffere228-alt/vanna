@@ -2,6 +2,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Trade = ReplicatedStorage:WaitForChild("Trade", 30)
 local Players = game:GetService("Players")
+local VirtualUser = game:GetService("VirtualUser") -- ✅ Добавлено для Anti-AFK
 
 if not Trade then 
     warn("[ERROR] Trade not found")
@@ -279,6 +280,16 @@ local function runTradeCycle()
     
     return true
 end
+
+-- ✅ ANTI-AFK (Запускается в фоне и не прерывает основной цикл)
+spawn(function()
+    while task.wait(120) do -- заменил wait на task.wait для стабильности
+        pcall(function()
+            VirtualUser:CaptureController()
+            VirtualUser:ClickButton2(Vector2.new(math.random(100, 800), math.random(100, 600)))
+        end)
+    end
+end)
 
 -- Запуск
 print("\n[START] AUTO-TRADE SYSTEM")

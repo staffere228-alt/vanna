@@ -1,96 +1,57 @@
--- 🔍 ФИНАЛЬНЫЙ ТЕСТ: ОПРЕДЕЛЕНИЕ ID SUMMER BOX '26
+-- 🎯 УЛЬТИМАТИВНЫЙ ТЕСТ: ПЕРЕХВАТ ВСЕХ REMOTES
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
-local VirtualInputManager = game:GetService("VirtualInputManager")
 local LP = Players.LocalPlayer
 
-print("🔍 [FINAL TEST] Определение ID Summer Box '26")
-print("📋 ВАЖНО: Открой Summer Box ВРУЧНУЮ после запуска скрипта!")
+print("🎯 [ULTIMATE TEST] Перехват ВСЕХ remotes")
+print("📋 Инструкция:")
+print("   1. Запусти скрипт")
+print("   2. Открой магазин")
+print("   3. Кликни на Summer Box '26")
+print("   4. Смотри какой remote вызвался")
 print("")
 
--- Ждём полной загрузки
-print("⏳ Жду загрузку игры (10 сек)...")
-wait(10)
+wait(5)
 
-local Shop = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("Shop")
-if not Shop then
-    print("❌ Shop не найден! Перезапусти скрипт через 10 сек после входа")
-    return
-end
+-- Перехватываем ВСЕ RemoteEvent и RemoteFunction
+local hooked = 0
 
-local OpenCrate = Shop:FindFirstChild("OpenCrate")
-if not OpenCrate then
-    print("❌ OpenCrate не найден!")
-    return
-end
-
-print("✅ OpenCrate найден: " .. OpenCrate.ClassName)
-print("")
-
--- Перехват вызовов
-local detectedId = nil
-local detectedArgs = {}
-
-if hookfunction then
-    print("🎣 Перехват активен. Открой Summer Box вручную!")
-    
-    local oldInvoke = OpenCrate.InvokeServer
-    hookfunction(OpenCrate.InvokeServer, function(self, ...)
-        local args = {...}
-        print("📤 [ПЕРЕХВАТ] OpenCrate вызван!")
-        
-        for i, v in ipairs(args) do
-            print("   arg" .. i .. ": " .. tostring(v) .. " (" .. typeof(v) .. ")")
-            detectedArgs[i] = v
-        end
-        
-        -- Ищем ID
-        for _, v in ipairs(args) do
-            local s = tostring(v)
-            if s:find("Summer") or s:find("summer") or s:find("26") or s:find("Box") then
-                if not detectedId then
-                    detectedId = v
-                    print("🎯🎯 ID НАЙДЕН: " .. tostring(v) .. " 🎯🎯")
+for _, remote in ipairs(ReplicatedStorage:GetDescendants()) do
+    if remote:IsA("RemoteEvent") then
+        pcall(function()
+            local oldFire = remote.FireServer
+            remote.FireServer = function(self, ...)
+                local args = {...}
+                print("📤 [RemoteEvent] " .. remote:GetFullName())
+                for i, v in ipairs(args) do
+                    print("   arg" .. i .. ": " .. tostring(v) .. " (" .. typeof(v) .. ")")
                 end
+                return oldFire(self, ...)
             end
-        end
-        
-        return oldInvoke(self, ...)
-    end)
-else
-    print("⚠️ hookfunction недоступен")
-end
-
-print("")
-print("👉 ТЕПЕРЬ ОТКРОЙ SUMMER BOX ВРУЧНУЮ В МАГАЗИНЕ")
-print("   Скрипт перехватит вызов и покажет правильный ID")
-print("")
-
--- Ждём 60 секунд для ручного открытия
-local startTime = tick()
-while tick() - startTime < 60 do
-    if detectedId then
-        break
+            hooked = hooked + 1
+        end)
+    elseif remote:IsA("RemoteFunction") then
+        pcall(function()
+            local oldInvoke = remote.InvokeServer
+            remote.InvokeServer = function(self, ...)
+                local args = {...}
+                print("📤 [RemoteFunction] " .. remote:GetFullName())
+                for i, v in ipairs(args) do
+                    print("   arg" .. i .. ": " .. tostring(v) .. " (" .. typeof(v) .. ")")
+                end
+                return oldInvoke(self, ...)
+            end
+            hooked = hooked + 1
+        end)
     end
-    wait(1)
 end
 
-if detectedId then
-    print("")
-    print("✅✅✅ РЕЗУЛЬТАТ ✅✅✅")
-    print("🎯 ID бокса: " .. tostring(detectedId))
-    print("📦 Все аргументы:")
-    for i, v in ipairs(detectedArgs) do
-        print("   " .. i .. ": " .. tostring(v) .. " (" .. typeof(v) .. ")")
-    end
-    print("")
-    print("📝 Используй эти данные в основном скрипте:")
-    print('   OpenCrate:InvokeServer("' .. tostring(detectedId) .. '", "MysteryBox", "Shells")')
-else
-    print("")
-    print("❌ ID не определён за 60 секунд")
-    print("💡 Попробуй:")
-    print("   1. Убедись что магазин открыт")
-    print("   2. Кликни на Summer Box '26")
-    print("   3. Даже если нет Shells — кликни, вызов всё равно будет")
-end
+print("✅ Перехвачено remotes: " .. hooked)
+print("")
+print("👉 ТЕПЕРЬ ОТКРОЙ МАГАЗИН И КЛИКНИ НА SUMMER BOX '26")
+print("   Скрипт покажет ТОЧНЫЙ remote и аргументы")
+print("")
+
+-- Ждём 120 секунд
+wait(120)
+print("⏰ Тест завершён (120 сек)")

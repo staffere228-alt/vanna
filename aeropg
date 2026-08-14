@@ -1,7 +1,8 @@
 --[[
-Auto Farm + Auto Crate + Summer Box '26 - MM2 | WORKING BUILD
-- Исправлены пути под реальный UI из диагностики
-- Авто-детект ID бокса при первом ручном открытии
+Auto Farm + Auto Crate + Summer Box '26 - MM2 | BRUTE FORCE BUILD
+- Перебор всех возможных ID бокса
+- Авто-запоминание рабочего ID
+- Правильные пути к Shells из диагностики
 ]]
 
 -- ================= 🛠️ СЕРВИСЫ =================
@@ -175,32 +176,32 @@ local function getShells()
     local pg = LocalPlayer:FindFirstChild("PlayerGui"); if not pg then return 0 end
     local function sf(p,n) return p and p:FindFirstChild(n) end
     
-    -- Путь из логов: CrossPlatform.Summer2026.Container.Main...
+    -- Ищем в CrossPlatform.Summer2026 (из твоих логов)
+    local summer = sf(pg, "CrossPlatform") and pg.CrossPlatform:FindFirstChild("Summer2026")
+    if summer then
+        for _, d in ipairs(summer:GetDescendants()) do
+            if d:IsA("TextLabel") then
+                local text = d.Text or ""
+                -- Ищем число рядом со словом Shells или просто число в нужном контексте
+                if text:lower():find("shell") or d.Name:lower():find("shell") then
+                    local num = tonumber(string.match(text, "%d+") or "0")
+                    if num and num > 0 then return num end
+                end
+            end
+        end
+    end
+    
+    -- Fallback: старые пути
     local paths = {
-        {"CrossPlatform", "Summer2026", "Container", "Main", "TopBar", "Shells", "Amount"},
-        {"CrossPlatform", "Summer2026", "Container", "Main", "Currency", "Shells", "Value"},
-        {"CrossPlatform", "Summer2026", "Container", "Main", "Header", "Shells"},
         {"MainGUI", "Lobby", "TopBar", "Shells", "Amount"},
         {"MainGUI", "Shop", "SummerBox", "Currency", "Amount"},
     }
-    
     for _, path in ipairs(paths) do
         local obj = pg
         for _, name in ipairs(path) do obj = sf(obj, name); if not obj then break end end
         if obj and (obj:IsA("TextLabel") or obj:IsA("TextButton")) then
             local num = tonumber(string.match(obj.Text or "", "%d+") or "0")
             if num and num >= 0 then return num end
-        end
-    end
-    
-    -- Fallback: ищем любой TextLabel с "Shells" в Summer2026
-    local summer = sf(pg, "CrossPlatform") and pg.CrossPlatform:FindFirstChild("Summer2026")
-    if summer then
-        for _, d in ipairs(summer:GetDescendants()) do
-            if d:IsA("TextLabel") and d.Text:lower():find("shell") then
-                local num = tonumber(string.match(d.Text, "%d+") or "0")
-                if num and num > 0 then return num end
-            end
         end
     end
     
@@ -281,27 +282,25 @@ spawn(function()
     end
 end)
 
--- ================= 🐚 SUMMER BOX '26 =================
-local detectedSummerId = nil
+-- ================= 🐚 SUMMER BOX '26 — BRUTE FORCE =================
+-- Все возможные ID из логов + стандартные варианты
+local SUMMER_IDS = {
+    "SummerBox26",
+    "SummerBox2026",
+    "SummerEventBox",
+    "Box_Summer26",
+    "Summer26Box",
+    "SummerBox",
+    "WaterFill",  -- из логов [1]
+    "SummerEvent", -- из логов
+}
 
--- Авто-детект ID при ручном открытии
-pcall(function()
-    local oldInvoke = OpenCrate.InvokeServer
-    OpenCrate.InvokeServer = function(self, boxId, boxType, currency, ...)
-        if currency == "Shells" or tostring(boxId):lower():find("summer") then
-            detectedSummerId = boxId
-            print("🎯 [SUMMER] Обнаружен ID бокса: " .. tostring(boxId))
-        end
-        return oldInvoke(self, boxId, boxType, currency, ...)
-    end
-end)
+local workingSummerId = nil
 
-local function openSummerBox()
-    local boxId = detectedSummerId or "SummerBox26"
+local function tryOpenSummer(boxId)
     local shells = getShells()
-    
     if shells < SETTINGS.SummerBoxCost then
-        return false, shells
+        return false, shells, "no_shells"
     end
     
     local ok, result = pcall(function()
@@ -310,38 +309,73 @@ local function openSummerBox()
     
     if ok and result then
         pcall(function() BoxController:Fire({{MysteryBoxId=boxId, RewardedItemId=result}}) end)
-        print("🐚 [SUMMER] ✅ Открыт " .. boxId .. "! Выпало:", result)
-        return true, shells - SETTINGS.SummerBoxCost
+        return true, shells - SETTINGS.SummerBoxCost, "success"
+    elseif ok and result == false then
+        return false, shells, "wrong_id"
+    elseif ok and result == nil then
+        return false, shells, "no_result"
+    else
+        return false, shells, "error"
     end
-    
-    return false, shells
 end
 
 spawn(function()
     if not SETTINGS.SummerBoxEnabled then return end
     wait(5)
     
-    print("🐚 [SUMMER] Auto Summer Box '26 запущен")
-    print("   💡 Совет: открой 1 Summer Box вручную, чтобы скрипт запомнил ID")
+    print("🐚 [SUMMER] Auto Summer Box '26 запущен (BRUTE FORCE)")
+    print("   💰 Цена: " .. SETTINGS.SummerBoxCost .. " Shells")
+    print("   🔍 Перебор " .. #SUMMER_IDS .. " возможных ID...")
     
     local opened = 0
     local failed = 0
     local lastShells = -1
+    local idIndex = 1
     
     while SETTINGS.Enabled do
-        local success, shells = openSummerBox()
+        -- Если уже нашли рабочий ID — используем только его
+        local boxId = workingSummerId or SUMMER_IDS[idIndex]
+        
+        local success, shells, status = tryOpenSummer(boxId)
         
         if success then
+            -- Запоминаем рабочий ID
+            if not workingSummerId then
+                workingSummerId = boxId
+                print("🎯 [SUMMER] Найден рабочий ID: " .. boxId)
+            end
+            
             opened = opened + 1
-            print("🐚 [SUMMER] Открыто: " .. opened .. " | Shells: ~" .. tostring(shells))
+            print("🐚 [SUMMER] ✅ Открыто: " .. opened .. " | ID: " .. boxId .. " | Shells: ~" .. tostring(shells))
             wait(SETTINGS.SummerBoxDelay)
         else
             failed = failed + 1
+            
             if shells ~= lastShells then
                 lastShells = shells
-                print("🐚 [SUMMER] Баланс: " .. tostring(shells) .. "/" .. SETTINGS.SummerBoxCost)
+                print("🐚 [SUMMER] Баланс: " .. tostring(shells) .. "/" .. SETTINGS.SummerBoxCost .. " | Статус: " .. status)
             end
-            wait(5)
+            
+            -- Если нет Shells — ждём
+            if status == "no_shells" then
+                wait(5)
+            else
+                -- Если ID не подошёл — пробуем следующий
+                if not workingSummerId then
+                    idIndex = idIndex + 1
+                    if idIndex > #SUMMER_IDS then
+                        idIndex = 1
+                        print("⚠️ [SUMMER] Все ID проверены, начинаю заново...")
+                        wait(10)
+                    else
+                        print("🔄 [SUMMER] Пробую следующий ID: " .. SUMMER_IDS[idIndex])
+                        wait(1)
+                    end
+                else
+                    -- Рабочий ID найден, но ошибка — ждём
+                    wait(5)
+                end
+            end
         end
     end
 end)
@@ -355,7 +389,7 @@ local coinCounter = 0
 local lastTarget = nil
 
 spawn(function()
-    print("✅ AUTO FARM + CRATE + SUMMER BOX '26 ACTIVE")
+    print("✅ AUTO FARM + CRATE + SUMMER BOX '26 ACTIVE (BRUTE FORCE)")
     
     while SETTINGS.Enabled do
         pcall(function()

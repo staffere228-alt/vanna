@@ -1,23 +1,23 @@
---  АВТО-КЛИК SUMMER BOX '26 (без remotes)
+-- 🎯 FINAL: AUTO-OPEN SUMMER BOX '26 (работает в лобби)
 local Players = game:GetService("Players")
 local VirtualInputManager = game:GetService("VirtualInputManager")
-local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LP = Players.LocalPlayer
 
-print("🎯 [AUTO-CLICK] Summer Box '26 через GUI")
-print("📋 Скрипт будет кликать кнопку Summer Box каждые 3 секунды")
+print("🎯 [FINAL] Auto Summer Box '26")
+print("📋 ВАЖНО: Скрипт работает ТОЛЬКО в лобби (не в раунде)")
 print("")
 
 local SETTINGS = {
     Enabled = true,
-    ClickDelay = 3,        -- задержка между кликами
-    ShellsNeeded = 120,    -- минимальный баланс для клика
+    ClickDelay = 2.5,
+    ShellsNeeded = 120,
 }
 
--- Функция клика по кнопке
+-- Клик по кнопке
 local function clickButton(button)
     if not button or not button.Visible then return false end
-    if button.AbsoluteSize.X < 10 or button.AbsoluteSize.Y < 10 then return false end
+    if button.AbsoluteSize.X < 10 then return false end
     
     local pos = button.AbsolutePosition + button.AbsoluteSize / 2
     pcall(function()
@@ -28,55 +28,35 @@ local function clickButton(button)
     return true
 end
 
--- Поиск кнопки Summer Box
-local function findSummerBoxButton()
+-- Получить баланс Shells
+local function getShells()
     local pg = LP:FindFirstChild("PlayerGui")
-    if not pg then return nil end
+    if not pg then return 0 end
     
-    -- Ищем по имени и тексту
-    for _, obj in ipairs(pg:GetDescendants()) do
-        if obj:IsA("TextButton") or obj:IsA("ImageButton") then
-            local name = obj.Name:lower()
-            local text = ""
-            if obj:IsA("TextButton") then text = obj.Text:lower() end
-            
-            -- Ищем Summer Box
-            if name:find("summer") and (name:find("box") or name:find("crate") or name:find("26")) then
-                if obj.Visible and obj.AbsoluteSize.X > 20 then
-                    return obj
-                end
-            end
-            
-            -- Или по тексту
-            if text:find("summer") and text:find("box") then
-                if obj.Visible and obj.AbsoluteSize.X > 20 then
-                    return obj
+    -- Путь из логов: CrossPlatform.Summer2026
+    local cp = pg:FindFirstChild("CrossPlatform")
+    if cp then
+        local s26 = cp:FindFirstChild("Summer2026")
+        if s26 then
+            for _, d in ipairs(s26:GetDescendants()) do
+                if d:IsA("TextLabel") then
+                    local t = d.Text or ""
+                    if t:lower():find("shell") or d.Name:lower():find("shell") then
+                        local n = tonumber(string.match(t, "%d+") or "0")
+                        if n and n > 0 then return n end
+                    end
                 end
             end
         end
     end
     
-    return nil
-end
-
--- Получение баланса Shells
-local function getShells()
-    local pg = LP:FindFirstChild("PlayerGui")
-    if not pg then return 0 end
-    
-    -- Ищем в Summer2026 UI
-    local summer = pg:FindFirstChild("CrossPlatform")
-    if summer then
-        summer = summer:FindFirstChild("Summer2026")
-        if summer then
-            for _, d in ipairs(summer:GetDescendants()) do
-                if d:IsA("TextLabel") then
-                    local text = d.Text or ""
-                    if text:lower():find("shell") or d.Name:lower():find("shell") then
-                        local num = tonumber(string.match(text, "%d+") or "0")
-                        if num and num > 0 then return num end
-                    end
-                end
+    -- Fallback: ищем любой TextLabel с числом рядом со словом Shells
+    for _, d in ipairs(pg:GetDescendants()) do
+        if d:IsA("TextLabel") and d.Visible then
+            local t = d.Text or ""
+            if t:lower():find("shell") then
+                local n = tonumber(string.match(t, "%d+") or "0")
+                if n and n > 0 then return n end
             end
         end
     end
@@ -84,41 +64,128 @@ local function getShells()
     return 0
 end
 
+-- Найти кнопку Summer Box
+local function findSummerBox()
+    local pg = LP:FindFirstChild("PlayerGui")
+    if not pg then return nil end
+    
+    local mg = pg:FindFirstChild("MainGUI")
+    if not mg then return nil end
+    
+    -- Путь из логов: MainGUI.Game.Crafting.Inventory.Salvage...
+    local game = mg:FindFirstChild("Game")
+    if not game then return nil end
+    
+    local crafting = game:FindFirstChild("Crafting")
+    if not crafting then return nil end
+    
+    local inv = crafting:FindFirstChild("Inventory")
+    if not inv then return nil end
+    
+    local salv = inv:FindFirstChild("Salvage")
+    if not salv then return nil end
+    
+    local sf = salv:FindFirstChild("ScrollFrame")
+    if not sf then return nil end
+    
+    local cont = sf:FindFirstChild("Container")
+    if not cont then return nil end
+    
+    -- Ищем Bubbles_K_2026 или похожее
+    for _, child in ipairs(cont:GetChildren()) do
+        local name = child.Name:lower()
+        if name:find("2026") or name:find("summer") or name:find("bubble") then
+            local btn = child:FindFirstChild("Button") or child:FindFirstChildOfClass("TextButton") or child:FindFirstChildOfClass("ImageButton")
+            if btn and btn.Visible then
+                return btn
+            end
+            -- Или сам контейнер кликабельный
+            if child:IsA("TextButton") or child:IsA("ImageButton") then
+                return child
+            end
+        end
+    end
+    
+    return nil
+end
+
+-- Открыть магазин если закрыт
+local function openShopIfNeeded()
+    local pg = LP:FindFirstChild("PlayerGui")
+    if not pg then return end
+    
+    local mg = pg:FindFirstChild("MainGUI")
+    if not mg then return end
+    
+    local game = mg:FindFirstChild("Game")
+    if not game then return end
+    
+    local dock = game:FindFirstChild("Dock")
+    if not dock then return end
+    
+    local shop = dock:FindFirstChild("Shop")
+    if shop and shop.Visible then
+        return true -- магазин уже открыт
+    end
+    
+    -- Кликаем кнопку магазина
+    if shop then
+        clickButton(shop)
+        task.wait(1)
+        return true
+    end
+    
+    return false
+end
+
 -- Главный цикл
 spawn(function()
-    print("✅ [AUTO-CLICK] Запущен")
+    print("✅ [FINAL] Запущен")
     local clicks = 0
+    local lastShells = -1
     
     while SETTINGS.Enabled do
         local shells = getShells()
         
-        if shells >= SETTINGS.ShellsNeeded then
-            local button = findSummerBoxButton()
-            
-            if button then
-                print("🖱️ [AUTO-CLICK] Кликаю Summer Box | Shells: " .. shells)
-                clickButton(button)
-                clicks = clicks + 1
-                print("   Кликов: " .. clicks)
-            else
-                -- Кнопка не найдена — возможно магазин закрыт
-                if clicks > 0 and clicks % 10 == 0 then
-                    print("⚠️ [AUTO-CLICK] Кнопка не найдена (магазин закрыт?)")
-                end
-            end
-        else
-            if shells > 0 then
-                print("⏳ [AUTO-CLICK] Жду Shells: " .. shells .. "/" .. SETTINGS.ShellsNeeded)
-            end
+        -- Показываем баланс раз в 10 сек
+        if shells ~= lastShells then
+            lastShells = shells
+            print("💰 Shells: " .. shells .. "/" .. SETTINGS.ShellsNeeded)
         end
         
-        wait(SETTINGS.ClickDelay)
+        if shells >= SETTINGS.ShellsNeeded then
+            -- Открываем магазин если нужно
+            openShopIfNeeded()
+            task.wait(0.5)
+            
+            -- Ищем кнопку Summer Box
+            local btn = findSummerBox()
+            
+            if btn then
+                print("🖱️ [CLICK] Summer Box найден! Кликаю...")
+                clickButton(btn)
+                clicks = clicks + 1
+                print("   ✅ Открыто: " .. clicks)
+                task.wait(SETTINGS.ClickDelay)
+            else
+                print("⚠️ Кнопка Summer Box не найдена")
+                print("   Убедись что:")
+                print("   1. Ты в лобби (не в раунде)")
+                print("   2. Магазин открыт")
+                print("   3. Вкладка Salvage/Crafting активна")
+                task.wait(5)
+            end
+        else
+            task.wait(3)
+        end
     end
 end)
 
 print("")
-print("💡 Инструкция:")
-print("   1. Открой магазин в игре")
-print("   2. Найди Summer Box '26")
-print("   3. Скрипт будет кликать автоматически каждые 3 сек")
-print("   4. Если не работает — напиши точное название кнопки")
+print("📋 Инструкция:")
+print("   1. Дождись окончания раунда (вернись в лобби)")
+print("   2. Открой магазин вручную один раз")
+print("   3. Перейди на вкладку с Summer Box")
+print("   4. Скрипт начнёт кликать автоматически")
+print("")
+print("💡 Если не работает — скинь скриншот открытого Summer Box в лобби")

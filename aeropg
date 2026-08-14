@@ -1,132 +1,96 @@
--- 🔍 ТЕСТ: ОПРЕДЕЛЕНИЕ ID SUMMER BOX '26
+-- 🔍 ФИНАЛЬНЫЙ ТЕСТ: ОПРЕДЕЛЕНИЕ ID SUMMER BOX '26
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 local LP = Players.LocalPlayer
 
-print("🔍 [TEST] Запуск определения ID Summer Box...")
-print("📋 Инструкция:")
-print("   1. Открой магазин в игре")
-print("   2. Найди Summer Box '26")
-print("   3. Нажми на него (не обязательно покупать)")
-print("   4. Смотри вывод ниже")
+print("🔍 [FINAL TEST] Определение ID Summer Box '26")
+print("📋 ВАЖНО: Открой Summer Box ВРУЧНУЮ после запуска скрипта!")
 print("")
 
--- Ждём загрузки Shop
-local Shop = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Shop")
-local OpenCrate = Shop:WaitForChild("OpenCrate")
+-- Ждём полной загрузки
+print("⏳ Жду загрузку игры (10 сек)...")
+wait(10)
 
-print("✅ [TEST] OpenCrate найден: " .. OpenCrate.ClassName)
+local Shop = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("Shop")
+if not Shop then
+    print("❌ Shop не найден! Перезапусти скрипт через 10 сек после входа")
+    return
+end
 
--- Способ 1: Перехват через hookfunction (работает в большинстве эксплойтов)
+local OpenCrate = Shop:FindFirstChild("OpenCrate")
+if not OpenCrate then
+    print("❌ OpenCrate не найден!")
+    return
+end
+
+print("✅ OpenCrate найден: " .. OpenCrate.ClassName)
+print("")
+
+-- Перехват вызовов
+local detectedId = nil
+local detectedArgs = {}
+
 if hookfunction then
-    print("🎣 [TEST] Используем hookfunction...")
+    print("🎣 Перехват активен. Открой Summer Box вручную!")
     
     local oldInvoke = OpenCrate.InvokeServer
     hookfunction(OpenCrate.InvokeServer, function(self, ...)
         local args = {...}
-        print("📤 [HOOK] OpenCrate.InvokeServer вызван!")
+        print("📤 [ПЕРЕХВАТ] OpenCrate вызван!")
+        
         for i, v in ipairs(args) do
             print("   arg" .. i .. ": " .. tostring(v) .. " (" .. typeof(v) .. ")")
+            detectedArgs[i] = v
         end
         
-        -- Если это Shells или Summer — запоминаем
+        -- Ищем ID
         for _, v in ipairs(args) do
-            local s = tostring(v):lower()
-            if s:find("summer") or s:find("shell") or s:find("26") then
-                print("🎯 [HOOK] ВОЗМОЖНЫЙ ID: " .. tostring(v))
+            local s = tostring(v)
+            if s:find("Summer") or s:find("summer") or s:find("26") or s:find("Box") then
+                if not detectedId then
+                    detectedId = v
+                    print("🎯🎯 ID НАЙДЕН: " .. tostring(v) .. " 🎯🎯")
+                end
             end
         end
         
         return oldInvoke(self, ...)
     end)
 else
-    print("⚠️ [TEST] hookfunction недоступен, используем backup метод...")
+    print("⚠️ hookfunction недоступен")
 end
 
--- Способ 2: Мониторинг через RunService (backup)
-local lastCheck = tick()
-local detectedIds = {}
-
-game:GetService("RunService").Heartbeat:Connect(function()
-    if tick() - lastCheck > 0.1 then
-        lastCheck = tick()
-        
-        -- Ищем в PlayerGui любые кнопки/текст с Summer
-        local pg = LP:FindFirstChild("PlayerGui")
-        if pg then
-            for _, obj in ipairs(pg:GetDescendants()) do
-                if obj:IsA("TextButton") or obj:IsA("ImageButton") then
-                    local name = obj.Name:lower()
-                    if name:find("summer") or name:find("box") or name:find("crate") then
-                        if not detectedIds[obj.Name] then
-                            detectedIds[obj.Name] = true
-                            print("🔘 [UI] Найдена кнопка: " .. obj:GetFullName())
-                            print("   Name: " .. obj.Name)
-                            
-                            -- Пробуем кликнуть и посмотреть что будет
-                            if obj.Visible and obj.AbsoluteSize.X > 10 then
-                                print("   🖱️ Кнопка видима, размер: " .. tostring(obj.AbsoluteSize))
-                            end
-                        end
-                    end
-                end
-                
-                -- Ищем TextLabel с ID
-                if obj:IsA("TextLabel") then
-                    local text = obj.Text or ""
-                    if text:find("SummerBox") or text:find("Summer_") or text:find("Box26") then
-                        print("📝 [UI] Текст с ID: '" .. text .. "' в " .. obj:GetFullName())
-                    end
-                end
-            end
-        end
-    end
-end)
-
--- Способ 3: Прямой перебор с выводом результата
 print("")
-print("🧪 [TEST] Начинаю прямой перебор возможных ID...")
-print("   Открой Summer Box вручную чтобы увидеть правильный вызов")
+print("👉 ТЕПЕРЬ ОТКРОЙ SUMMER BOX ВРУЧНУЮ В МАГАЗИНЕ")
+print("   Скрипт перехватит вызов и покажет правильный ID")
 print("")
 
-local testIds = {
-    "SummerBox26", "SummerBox2026", "SummerEventBox", 
-    "Box_Summer26", "Summer26Box", "SummerBox",
-    "WaterFill", "SummerEvent", "summer_box_26",
-    "SUMMERBOX26", "summerbox26"
-}
-
-spawn(function()
-    wait(3)
-    for _, id in ipairs(testIds) do
-        print("🔬 [TEST] Пробую ID: " .. id)
-        local ok, result = pcall(function()
-            return OpenCrate:InvokeServer(id, "MysteryBox", "Shells")
-        end)
-        
-        if ok then
-            print("   ✅ Ответ: " .. tostring(result))
-            if result and result ~= false and result ~= nil then
-                print("   🎯🎯🎯 РАБОЧИЙ ID НАЙДЕН: " .. id .. " 🎯🎯")
-                print("   Результат: " .. tostring(result))
-            elseif result == false then
-                print("   ❌ ID не подходит (false)")
-            elseif result == nil then
-                print("   ⚠️ ID вернул nil")
-            end
-        else
-            print("   ❌ Ошибка: " .. tostring(result))
-        end
-        
-        wait(0.5)
+-- Ждём 60 секунд для ручного открытия
+local startTime = tick()
+while tick() - startTime < 60 do
+    if detectedId then
+        break
     end
-    
+    wait(1)
+end
+
+if detectedId then
     print("")
-    print("✅ [TEST] Перебор завершён.")
-    print("💡 Если рабочий ID не найден — открой Summer Box вручную")
-    print("   и смотри строки с [HOOK] выше")
-end)
-
-print("")
-print("⏳ [TEST] Скрипт работает. Жду действий...")
-print("   Закрой это окно и открой Summer Box в игре")
+    print("✅✅✅ РЕЗУЛЬТАТ ✅✅✅")
+    print("🎯 ID бокса: " .. tostring(detectedId))
+    print("📦 Все аргументы:")
+    for i, v in ipairs(detectedArgs) do
+        print("   " .. i .. ": " .. tostring(v) .. " (" .. typeof(v) .. ")")
+    end
+    print("")
+    print("📝 Используй эти данные в основном скрипте:")
+    print('   OpenCrate:InvokeServer("' .. tostring(detectedId) .. '", "MysteryBox", "Shells")')
+else
+    print("")
+    print("❌ ID не определён за 60 секунд")
+    print("💡 Попробуй:")
+    print("   1. Убедись что магазин открыт")
+    print("   2. Кликни на Summer Box '26")
+    print("   3. Даже если нет Shells — кликни, вызов всё равно будет")
+end

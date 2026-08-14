@@ -1,435 +1,132 @@
---[[
-Auto Farm + Auto Crate + Summer Box '26 - MM2 | BRUTE FORCE BUILD
-- Перебор всех возможных ID бокса
-- Авто-запоминание рабочего ID
-- Правильные пути к Shells из диагностики
-]]
-
--- ================= 🛠️ СЕРВИСЫ =================
-local VirtualInputManager = game:GetService("VirtualInputManager")
-local VirtualUser = game:GetService("VirtualUser")
-local Players = game:GetService("Players")
-local TweenService = game:GetService("TweenService")
-local TeleportService = game:GetService("TeleportService")
-local GuiService = game:GetService("GuiService")
+-- 🔍 ТЕСТ: ОПРЕДЕЛЕНИЕ ID SUMMER BOX '26
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local PhysicsService = game:GetService("PhysicsService")
-local RunService = game:GetService("RunService")
-local LocalPlayer = Players.LocalPlayer
+local Players = game:GetService("Players")
+local LP = Players.LocalPlayer
 
--- ================= ⚙️ НАСТРОЙКИ =================
-local SETTINGS = {
-    Enabled = true,
-    MoveSpeed = 20,
-    CollectionRadius = 4.0,
-    LoopDelay = 0.1,
-    MaxBagCoins = 40,
-    AutoRespawn = true,
-    SpawnWaitTime = 3.0,
-    YOffset = -2,
-    ReconnectDelay = 2,
-    SummerBoxEnabled = true,
-    SummerBoxCost = 120,
-    SummerBoxDelay = 2.5,
-}
+print("🔍 [TEST] Запуск определения ID Summer Box...")
+print("📋 Инструкция:")
+print("   1. Открой магазин в игре")
+print("   2. Найди Summer Box '26")
+print("   3. Нажми на него (не обязательно покупать)")
+print("   4. Смотри вывод ниже")
+print("")
 
-local MAX_IGNORED = 10
-local IGNORE_DUR = 3.0
-local isReconnecting = false
-local isRespawning = false
-
--- ================= 🔌 РЕКОННЕКТ =================
-local function forceReconnect(reason)
-    if isReconnecting then return end
-    isReconnecting = true
-    spawn(function()
-        wait(SETTINGS.ReconnectDelay)
-        pcall(function() TeleportService:Teleport(game.PlaceId, LocalPlayer) end)
-    end)
-    while true do wait(1) if not LocalPlayer or not LocalPlayer.Parent then break end end
-end
-
-GuiService.ErrorMessageChanged:Connect(function(e) if e and e ~= "" then forceReconnect(e) end end)
-Players.PlayerRemoving:Connect(function(p) if p == LocalPlayer then forceReconnect("Kick") end end)
-LocalPlayer.OnTeleport:Connect(function(s) if s == Enum.TeleportState.Failed then forceReconnect("TP Fail") end end)
-
--- ================= 🖱️ ВЫБОР УСТРОЙСТВА =================
-spawn(function()
-    while wait(0.1) do
-        local g = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("DeviceSelect")
-        if g then
-            local b = g:FindFirstChild("Container") and g.Container:FindFirstChild("Phone") and g.Container.Phone:FindFirstChild("Button")
-            if b then
-                local p, s = b.AbsolutePosition, b.AbsoluteSize
-                VirtualInputManager:SendMouseButtonEvent(p.X+s.X/2, p.Y+s.Y/2, 0, true, game, 1)
-                wait(0.1)
-                VirtualInputManager:SendMouseButtonEvent(p.X+s.X/2, p.Y+s.Y/2, 0, false, game, 1)
-                break
-            end
-        end
-    end
-end)
-wait(8)
-
--- ================= 🔄 СОСТОЯНИЕ =================
-local isRoundActive = false
-local collectedCoins = {}
-local currentTween = nil
-local isMoving = false
-
--- ================= 🚫 NOCLIP + АНТИГРАВ =================
-local noclipActive = false
-local antiGravForce = nil
-
-local function setupAntiGravity(hrp)
-    if antiGravForce then pcall(function() antiGravForce:Destroy() end) end
-    local att = hrp:FindFirstChild("AntiGravAttachment") or Instance.new("Attachment", hrp)
-    att.Name = "AntiGravAttachment"
-    local vf = Instance.new("VectorForce", hrp)
-    vf.Attachment0 = att
-    vf.Force = Vector3.new(0, hrp.AssemblyMass * 196.2, 0)
-    vf.RelativeTo = Enum.ActuatorRelativeTo.World
-    vf.ApplyAtCenterOfMass = true
-    antiGravForce = vf
-end
-
-local function applyNoClip(char)
-    if not char then return end
-    pcall(function() PhysicsService:RegisterCollisionGroup("NC"); PhysicsService:CollisionGroupSetCollidable("NC", "Default", false) end)
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if hum then
-        hum.PlatformStand = true
-        for _, s in ipairs({Enum.HumanoidStateType.GettingUp, Enum.HumanoidStateType.FallingDown, Enum.HumanoidStateType.Ragdoll, Enum.HumanoidStateType.Freefall, Enum.HumanoidStateType.Jumping, Enum.HumanoidStateType.Landed, Enum.HumanoidStateType.Running, Enum.HumanoidStateType.RunningNoPhysics, Enum.HumanoidStateType.Seated, Enum.HumanoidStateType.Swimming}) do
-            pcall(function() hum:SetStateEnabled(s, false) end)
-        end
-    end
-    for _, p in ipairs(char:GetDescendants()) do
-        if p:IsA("BasePart") then p.CanCollide = false; p.Massless = true; p.CollisionGroup = "NC" end
-    end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if hrp and not antiGravForce then setupAntiGravity(hrp) end
-end
-
-local function enableNoClip() noclipActive = true end
-local function disableNoClip()
-    noclipActive = false
-    if currentTween then pcall(function() currentTween:Cancel() end); currentTween = nil end
-    isMoving = false
-    if antiGravForce then pcall(function() antiGravForce:Destroy() end); antiGravForce = nil end
-    local char = LocalPlayer.Character
-    if char then
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum then
-            hum.PlatformStand = false
-            for _, s in ipairs({Enum.HumanoidStateType.GettingUp, Enum.HumanoidStateType.FallingDown, Enum.HumanoidStateType.Ragdoll, Enum.HumanoidStateType.Freefall, Enum.HumanoidStateType.Jumping, Enum.HumanoidStateType.Landed, Enum.HumanoidStateType.Running, Enum.HumanoidStateType.RunningNoPhysics, Enum.HumanoidStateType.Seated, Enum.HumanoidStateType.Swimming}) do
-                pcall(function() hum:SetStateEnabled(s, true) end)
-            end
-        end
-        for _, p in ipairs(char:GetDescendants()) do
-            if p:IsA("BasePart") then p.CanCollide = true; p.Massless = false; p.CollisionGroup = "Default" end
-        end
-    end
-end
-
-RunService.Heartbeat:Connect(function()
-    if noclipActive then
-        pcall(function()
-            applyNoClip(LocalPlayer.Character)
-            local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-            if hrp and antiGravForce then antiGravForce.Force = Vector3.new(0, hrp.AssemblyMass * 196.2, 0) end
-        end)
-    end
-end)
-
--- ================= 📡 РАУНД =================
-local function setupRoundDetection()
-    local rs = ReplicatedStorage:FindFirstChild("Remotes")
-    local gp = rs and rs:FindFirstChild("Gameplay")
-    local rStart = gp and gp:FindFirstChild("RoundStart")
-    if rStart and rStart:IsA("RemoteEvent") then
-        rStart.OnClientEvent:Connect(function() isRoundActive = true; enableNoClip() end)
-    else
-        delay(3, function() if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then isRoundActive = true; enableNoClip() end end)
-    end
-end
-
-LocalPlayer.CharacterAdded:Connect(function(c)
-    isRoundActive = false; disableNoClip(); wait(1)
-    local h = c:FindFirstChildOfClass("Humanoid")
-    if h then h.Died:Connect(function() isRoundActive = false; disableNoClip() end) end
-end)
-
--- ================= 🛠️ ВСПОМОГАТЕЛЬНЫЕ =================
-local function getHRP() local c = LocalPlayer.Character; return c and c:FindFirstChild("HumanoidRootPart") end
-
-local function getBagCoins()
-    local pg = LocalPlayer:FindFirstChild("PlayerGui"); if not pg then return 0 end
-    local function sf(p,n) return p and p:FindFirstChild(n) end
-    local o = sf(sf(sf(sf(sf(sf(sf(sf(pg,"MainGUI"),"Lobby"),"Dock"),"CoinBags"),"Container"),"Coin"),"CurrencyFrame"),"Icon")
-    if o then o = o:FindFirstChild("Coins") end
-    if not o then return 0 end
-    return tonumber(string.match(o.Text or "", "%d+") or "0") or 0
-end
-
--- 🐚 SHELLS — ПРАВИЛЬНЫЙ ПУТЬ ИЗ ДИАГНОСТИКИ
-local function getShells()
-    local pg = LocalPlayer:FindFirstChild("PlayerGui"); if not pg then return 0 end
-    local function sf(p,n) return p and p:FindFirstChild(n) end
-    
-    -- Ищем в CrossPlatform.Summer2026 (из твоих логов)
-    local summer = sf(pg, "CrossPlatform") and pg.CrossPlatform:FindFirstChild("Summer2026")
-    if summer then
-        for _, d in ipairs(summer:GetDescendants()) do
-            if d:IsA("TextLabel") then
-                local text = d.Text or ""
-                -- Ищем число рядом со словом Shells или просто число в нужном контексте
-                if text:lower():find("shell") or d.Name:lower():find("shell") then
-                    local num = tonumber(string.match(text, "%d+") or "0")
-                    if num and num > 0 then return num end
-                end
-            end
-        end
-    end
-    
-    -- Fallback: старые пути
-    local paths = {
-        {"MainGUI", "Lobby", "TopBar", "Shells", "Amount"},
-        {"MainGUI", "Shop", "SummerBox", "Currency", "Amount"},
-    }
-    for _, path in ipairs(paths) do
-        local obj = pg
-        for _, name in ipairs(path) do obj = sf(obj, name); if not obj then break end end
-        if obj and (obj:IsA("TextLabel") or obj:IsA("TextButton")) then
-            local num = tonumber(string.match(obj.Text or "", "%d+") or "0")
-            if num and num >= 0 then return num end
-        end
-    end
-    
-    return 0
-end
-
--- ================= 💀 РЕСПАВН =================
-local function forceRespawn()
-    if isRespawning then return end
-    isRespawning = true
-    local char = LocalPlayer.Character; if not char then isRespawning = false; return end
-    local hum = char:FindFirstChildOfClass("Humanoid"); if not hum then isRespawning = false; return end
-    if currentTween then pcall(function() currentTween:Cancel() end); currentTween = nil end
-    isMoving = false
-    pcall(function() hum:ChangeState(Enum.HumanoidStateType.Dead); hum.Health = 0 end)
-    wait(SETTINGS.SpawnWaitTime)
-    local nc = LocalPlayer.Character
-    if nc and nc ~= char then
-        local hrp = nc:WaitForChild("HumanoidRootPart", 5)
-        if hrp then enableNoClip() end
-    else
-        pcall(function() char:Destroy() end); wait(2)
-        local rc = LocalPlayer.Character
-        if rc then local rh = rc:WaitForChild("HumanoidRootPart", 5); if rh then enableNoClip() end end
-    end
-    isRespawning = false
-end
-
--- ================= 🪙 МОНЕТЫ =================
-local function isCollected(c) local n=tick(); for _,d in ipairs(collectedCoins) do if d.coin==c and n<d.time+IGNORE_DUR then return true end end; return false end
-local function markCollected(c) table.insert(collectedCoins,{coin=c,time=tick()}); if #collectedCoins>MAX_IGNORED then table.remove(collectedCoins,1) end end
-local function getNearestCoin(map, hrp)
-    if not map or not hrp then return nil, math.huge end
-    local cont = map:FindFirstChild("CoinContainer"); if not cont then return nil, math.huge end
-    local t, md = nil, math.huge
-    for _, p in next, cont:GetChildren() do
-        if p:IsA("BasePart") and p.Name:lower():find("coin") and not isCollected(p) then
-            local d = (p.Position-hrp.Position).Magnitude
-            if d < md then md = d; t = p end
-        end
-    end
-    return t, md
-end
-
-local function tweenToTarget(hrp, pos)
-    if currentTween then pcall(function() currentTween:Cancel() end) end
-    local dist = (pos-hrp.Position).Magnitude
-    local ti = TweenInfo.new(math.max(dist/SETTINGS.MoveSpeed, 0.1), Enum.EasingStyle.Linear)
-    currentTween = TweenService:Create(hrp, ti, {CFrame = CFrame.new(pos)})
-    isMoving = true
-    currentTween.Completed:Connect(function() isMoving = false; currentTween = nil end)
-    currentTween:Play()
-end
-
--- ================= 📦 КЕЙСЫ =================
+-- Ждём загрузки Shop
 local Shop = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Shop")
 local OpenCrate = Shop:WaitForChild("OpenCrate")
-local BoxController = Shop:WaitForChild("BoxController")
 
-local boxes = {"KnifeBox1","KnifeBox2","KnifeBox3","KnifeBox4","KnifeBox5","GunBox1","GunBox3"}
-local currencies = {"Coins","Gems","Key"}
+print("✅ [TEST] OpenCrate найден: " .. OpenCrate.ClassName)
 
-local function openRandomCrate()
-    local id = boxes[math.random(1,#boxes)]
-    for _, cur in ipairs(currencies) do
-        local ok, res = pcall(function() return OpenCrate:InvokeServer(id, "MysteryBox", cur) end)
-        if ok and res then
-            pcall(function() BoxController:Fire({{MysteryBoxId=id, RewardedItemId=res}}) end)
-            return true
+-- Способ 1: Перехват через hookfunction (работает в большинстве эксплойтов)
+if hookfunction then
+    print("🎣 [TEST] Используем hookfunction...")
+    
+    local oldInvoke = OpenCrate.InvokeServer
+    hookfunction(OpenCrate.InvokeServer, function(self, ...)
+        local args = {...}
+        print("📤 [HOOK] OpenCrate.InvokeServer вызван!")
+        for i, v in ipairs(args) do
+            print("   arg" .. i .. ": " .. tostring(v) .. " (" .. typeof(v) .. ")")
         end
-    end
-    return false
-end
-
-spawn(function()
-    while SETTINGS.Enabled do
-        if openRandomCrate() then wait(2.5) else wait(5) end
-    end
-end)
-
--- ================= 🐚 SUMMER BOX '26 — BRUTE FORCE =================
--- Все возможные ID из логов + стандартные варианты
-local SUMMER_IDS = {
-    "SummerBox26",
-    "SummerBox2026",
-    "SummerEventBox",
-    "Box_Summer26",
-    "Summer26Box",
-    "SummerBox",
-    "WaterFill",  -- из логов [1]
-    "SummerEvent", -- из логов
-}
-
-local workingSummerId = nil
-
-local function tryOpenSummer(boxId)
-    local shells = getShells()
-    if shells < SETTINGS.SummerBoxCost then
-        return false, shells, "no_shells"
-    end
-    
-    local ok, result = pcall(function()
-        return OpenCrate:InvokeServer(boxId, "MysteryBox", "Shells")
+        
+        -- Если это Shells или Summer — запоминаем
+        for _, v in ipairs(args) do
+            local s = tostring(v):lower()
+            if s:find("summer") or s:find("shell") or s:find("26") then
+                print("🎯 [HOOK] ВОЗМОЖНЫЙ ID: " .. tostring(v))
+            end
+        end
+        
+        return oldInvoke(self, ...)
     end)
-    
-    if ok and result then
-        pcall(function() BoxController:Fire({{MysteryBoxId=boxId, RewardedItemId=result}}) end)
-        return true, shells - SETTINGS.SummerBoxCost, "success"
-    elseif ok and result == false then
-        return false, shells, "wrong_id"
-    elseif ok and result == nil then
-        return false, shells, "no_result"
-    else
-        return false, shells, "error"
-    end
+else
+    print("⚠️ [TEST] hookfunction недоступен, используем backup метод...")
 end
 
-spawn(function()
-    if not SETTINGS.SummerBoxEnabled then return end
-    wait(5)
-    
-    print("🐚 [SUMMER] Auto Summer Box '26 запущен (BRUTE FORCE)")
-    print("   💰 Цена: " .. SETTINGS.SummerBoxCost .. " Shells")
-    print("   🔍 Перебор " .. #SUMMER_IDS .. " возможных ID...")
-    
-    local opened = 0
-    local failed = 0
-    local lastShells = -1
-    local idIndex = 1
-    
-    while SETTINGS.Enabled do
-        -- Если уже нашли рабочий ID — используем только его
-        local boxId = workingSummerId or SUMMER_IDS[idIndex]
+-- Способ 2: Мониторинг через RunService (backup)
+local lastCheck = tick()
+local detectedIds = {}
+
+game:GetService("RunService").Heartbeat:Connect(function()
+    if tick() - lastCheck > 0.1 then
+        lastCheck = tick()
         
-        local success, shells, status = tryOpenSummer(boxId)
-        
-        if success then
-            -- Запоминаем рабочий ID
-            if not workingSummerId then
-                workingSummerId = boxId
-                print("🎯 [SUMMER] Найден рабочий ID: " .. boxId)
-            end
-            
-            opened = opened + 1
-            print("🐚 [SUMMER] ✅ Открыто: " .. opened .. " | ID: " .. boxId .. " | Shells: ~" .. tostring(shells))
-            wait(SETTINGS.SummerBoxDelay)
-        else
-            failed = failed + 1
-            
-            if shells ~= lastShells then
-                lastShells = shells
-                print("🐚 [SUMMER] Баланс: " .. tostring(shells) .. "/" .. SETTINGS.SummerBoxCost .. " | Статус: " .. status)
-            end
-            
-            -- Если нет Shells — ждём
-            if status == "no_shells" then
-                wait(5)
-            else
-                -- Если ID не подошёл — пробуем следующий
-                if not workingSummerId then
-                    idIndex = idIndex + 1
-                    if idIndex > #SUMMER_IDS then
-                        idIndex = 1
-                        print("⚠️ [SUMMER] Все ID проверены, начинаю заново...")
-                        wait(10)
-                    else
-                        print("🔄 [SUMMER] Пробую следующий ID: " .. SUMMER_IDS[idIndex])
-                        wait(1)
+        -- Ищем в PlayerGui любые кнопки/текст с Summer
+        local pg = LP:FindFirstChild("PlayerGui")
+        if pg then
+            for _, obj in ipairs(pg:GetDescendants()) do
+                if obj:IsA("TextButton") or obj:IsA("ImageButton") then
+                    local name = obj.Name:lower()
+                    if name:find("summer") or name:find("box") or name:find("crate") then
+                        if not detectedIds[obj.Name] then
+                            detectedIds[obj.Name] = true
+                            print("🔘 [UI] Найдена кнопка: " .. obj:GetFullName())
+                            print("   Name: " .. obj.Name)
+                            
+                            -- Пробуем кликнуть и посмотреть что будет
+                            if obj.Visible and obj.AbsoluteSize.X > 10 then
+                                print("   🖱️ Кнопка видима, размер: " .. tostring(obj.AbsoluteSize))
+                            end
+                        end
                     end
-                else
-                    -- Рабочий ID найден, но ошибка — ждём
-                    wait(5)
+                end
+                
+                -- Ищем TextLabel с ID
+                if obj:IsA("TextLabel") then
+                    local text = obj.Text or ""
+                    if text:find("SummerBox") or text:find("Summer_") or text:find("Box26") then
+                        print("📝 [UI] Текст с ID: '" .. text .. "' в " .. obj:GetFullName())
+                    end
                 end
             end
         end
     end
 end)
 
--- ================= 🛡️ ANTI-AFK =================
-spawn(function() while wait(120) do pcall(function() VirtualUser:CaptureController(); VirtualUser:ClickButton2(Vector2.new(math.random(100,800), math.random(100,600))) end) end end)
+-- Способ 3: Прямой перебор с выводом результата
+print("")
+print("🧪 [TEST] Начинаю прямой перебор возможных ID...")
+print("   Открой Summer Box вручную чтобы увидеть правильный вызов")
+print("")
 
--- ================= 🎯 ГЛАВНЫЙ ЦИКЛ =================
-setupRoundDetection()
-local coinCounter = 0
-local lastTarget = nil
+local testIds = {
+    "SummerBox26", "SummerBox2026", "SummerEventBox", 
+    "Box_Summer26", "Summer26Box", "SummerBox",
+    "WaterFill", "SummerEvent", "summer_box_26",
+    "SUMMERBOX26", "summerbox26"
+}
 
 spawn(function()
-    print("✅ AUTO FARM + CRATE + SUMMER BOX '26 ACTIVE (BRUTE FORCE)")
-    
-    while SETTINGS.Enabled do
-        pcall(function()
-            if not isRoundActive then wait(1) return end
-            local hrp = getHRP(); if not hrp then wait(1) return end
-            
-            if hrp.Position.Y < -50 then
-                if currentTween then currentTween:Cancel(); currentTween = nil end
-                isMoving = false
-                hrp.CFrame = CFrame.new(hrp.Position.X, 50, hrp.Position.Z)
-                wait(2); return
-            end
-            
-            local bag = getBagCoins()
-            if bag >= SETTINGS.MaxBagCoins then
-                if currentTween then currentTween:Cancel(); currentTween = nil end
-                isMoving = false
-                if SETTINGS.AutoRespawn and not isRespawning then forceRespawn() end
-                wait(SETTINGS.SpawnWaitTime); return
-            end
-            
-            local map
-            for _, o in ipairs(workspace:GetChildren()) do if o:FindFirstChild("CoinContainer") then map = o; break end end
-            if not map then wait(SETTINGS.LoopDelay); return end
-            
-            local coin, dist = getNearestCoin(map, hrp)
-            if not coin then lastTarget = nil; wait(SETTINGS.LoopDelay); return end
-            
-            local target = Vector3.new(coin.Position.X, coin.Position.Y + SETTINGS.YOffset, coin.Position.Z)
-            
-            if dist <= SETTINGS.CollectionRadius then
-                markCollected(coin); lastTarget = nil; coinCounter = coinCounter + 1
-                return
-            end
-            
-            if not isMoving or lastTarget ~= coin then
-                lastTarget = coin
-                tweenToTarget(hrp, target)
-            end
+    wait(3)
+    for _, id in ipairs(testIds) do
+        print("🔬 [TEST] Пробую ID: " .. id)
+        local ok, result = pcall(function()
+            return OpenCrate:InvokeServer(id, "MysteryBox", "Shells")
         end)
-        wait(SETTINGS.LoopDelay)
+        
+        if ok then
+            print("   ✅ Ответ: " .. tostring(result))
+            if result and result ~= false and result ~= nil then
+                print("   🎯🎯🎯 РАБОЧИЙ ID НАЙДЕН: " .. id .. " 🎯🎯")
+                print("   Результат: " .. tostring(result))
+            elseif result == false then
+                print("   ❌ ID не подходит (false)")
+            elseif result == nil then
+                print("   ⚠️ ID вернул nil")
+            end
+        else
+            print("   ❌ Ошибка: " .. tostring(result))
+        end
+        
+        wait(0.5)
     end
+    
+    print("")
+    print("✅ [TEST] Перебор завершён.")
+    print("💡 Если рабочий ID не найден — открой Summer Box вручную")
+    print("   и смотри строки с [HOOK] выше")
 end)
+
+print("")
+print("⏳ [TEST] Скрипт работает. Жду действий...")
+print("   Закрой это окно и открой Summer Box в игре")

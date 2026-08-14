@@ -272,7 +272,6 @@ local function getShells()
     
     local function sf(p, n) return p and p:FindFirstChild(n) end
     
-    -- Перебираем возможные пути к UI Shells
     local paths = {
         {"MainGUI", "Lobby", "Dock", "CoinBags", "Container", "Shell", "CurrencyFrame", "Icon", "Shells"},
         {"MainGUI", "Lobby", "Dock", "CoinBags", "Container", "Shells", "CurrencyFrame", "Icon", "Shells"},
@@ -301,67 +300,40 @@ end
 
 -- ================= 💀 РЕСПАВН =================
 local function forceRespawn()
-    if isRespawning then
-        print(" Респавн уже идёт...")
-        return
-    end
-    
+    if isRespawning then return end
     isRespawning = true
-    print("💀 Запуск респавна...")
     
     local char = LocalPlayer.Character
-    if not char then
-        print("❌ Нет персонажа!")
-        isRespawning = false
-        return
-    end
+    if not char then isRespawning = false; return end
     
     local hum = char:FindFirstChildOfClass("Humanoid")
-    if not hum then
-        print("❌ Нет Humanoid!")
-        isRespawning = false
-        return
-    end
+    if not hum then isRespawning = false; return end
     
-    if currentTween then
-        pcall(function() currentTween:Cancel() end)
-        currentTween = nil
-    end
+    if currentTween then pcall(function() currentTween:Cancel() end); currentTween = nil end
     isMoving = false
     
-    print("💀 Применяю ChangeState(Dead) + Health=0...")
     pcall(function()
         hum:ChangeState(Enum.HumanoidStateType.Dead)
         hum.Health = 0
     end)
     
-    print("⏳ Ожидание респавна (" .. SETTINGS.SpawnWaitTime .. " сек)...")
     wait(SETTINGS.SpawnWaitTime)
     
     local newChar = LocalPlayer.Character
     if newChar and newChar ~= char then
-        print("✅ Новый персонаж появился!")
         local hrp = newChar:WaitForChild("HumanoidRootPart", 5)
-        if hrp then
-            enableNoClip()
-            print(" NoClip включён")
-        end
+        if hrp then enableNoClip() end
     else
-        print("⚠️ Персонаж не изменился, пробую Destroy...")
         pcall(function() char:Destroy() end)
         wait(2)
         local retryChar = LocalPlayer.Character
         if retryChar then
             local retryHrp = retryChar:WaitForChild("HumanoidRootPart", 5)
-            if retryHrp then
-                enableNoClip()
-                print("🚫 NoClip включён после retry")
-            end
+            if retryHrp then enableNoClip() end
         end
     end
     
     isRespawning = false
-    print("✅ Респавн завершён")
 end
 
 -- ================= 🪙 ИГНОР МОНЕТ =================
@@ -424,7 +396,6 @@ local function openRandomCrate()
             pcall(function()
                 BoxController:Fire({{MysteryBoxId = boxId, RewardedItemId = result}})
             end)
-            print("✅ [CRATE]", boxId, "|", currency, "| Выпало:", result)
             return true
         end
     end
@@ -432,34 +403,17 @@ local function openRandomCrate()
 end
 
 spawn(function()
-    print("🔥 [CRATE] Auto Opener запущен")
-    local openedCount = 0
-    local failedCount = 0
-    local waitingForMoney = false
-    
     while SETTINGS.Enabled do
         local success = openRandomCrate()
         if success then
-            if waitingForMoney then
-                print("\n💰 [CRATE] Деньги появились!")
-                waitingForMoney = false
-            end
-            openedCount = openedCount + 1
-            print(" [CRATE] Открыто: " .. openedCount .. " | Ошибок: " .. failedCount)
             wait(2.5)
         else
-            if not waitingForMoney then
-                print("⏳ [CRATE] Нет денег/ключей. Ожидаю...")
-                waitingForMoney = true
-            end
-            failedCount = failedCount + 1
             wait(5)
         end
     end
 end)
 
 -- ================= 🐚 АВТО-ОТКРЫТИЕ SUMMER BOX '26 =================
--- Перебор возможных ID бокса (на случай если в игре называется иначе)
 local SUMMER_BOX_IDS = {
     "SummerBox26",
     "SummerBox2026",
@@ -470,10 +424,8 @@ local SUMMER_BOX_IDS = {
 }
 
 local function detectSummerBoxId()
-    -- Пытаемся найти ID бокса в магазине/ремоутах
     local shopGui = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("MainGUI")
     if shopGui then
-        -- Ищем в UI упоминания Summer
         local found = nil
         local function search(parent, depth)
             if depth > 6 or found then return end
@@ -491,7 +443,7 @@ local function detectSummerBoxId()
         pcall(function() search(shopGui, 0) end)
         if found then return found end
     end
-    return SUMMER_BOX_IDS[1] -- по умолчанию
+    return SUMMER_BOX_IDS[1]
 end
 
 local function openSummerBox(boxId)
@@ -516,16 +468,11 @@ local function openSummerBox(boxId)
 end
 
 spawn(function()
-    if not SETTINGS.SummerBoxEnabled then
-        print("🐚 [SUMMER] Auto Summer Box '26 отключён")
-        return
-    end
+    if not SETTINGS.SummerBoxEnabled then return end
     
-    wait(5) -- ждём загрузки UI
+    wait(5)
     local detectedId = detectSummerBoxId()
-    print("🐚 [SUMMER] Auto Summer Box '26 запущен")
-    print("   💰 Цена: " .. SETTINGS.SummerBoxCost .. " Shells")
-    print("   📦 ID бокса: " .. detectedId)
+    print("🐚 [SUMMER] Auto Summer Box '26 запущен | ID: " .. detectedId)
     
     local openedCount = 0
     local failedCount = 0
@@ -544,10 +491,6 @@ spawn(function()
             if currentShells ~= lastShells then
                 lastShells = currentShells
                 print("🐚 [SUMMER] Баланс: " .. tostring(currentShells) .. "/" .. SETTINGS.SummerBoxCost .. " Shells")
-            end
-            
-            if failedCount % 20 == 0 then
-                print("⏳ [SUMMER] Ждём Shells... Попыток: " .. failedCount)
             end
             
             wait(5)
@@ -573,12 +516,6 @@ local lastTarget = nil
 
 spawn(function()
     print("✅ AUTO FARM + AUTO CRATE + SUMMER BOX '26 ACTIVE")
-    print("   Speed: " .. SETTINGS.MoveSpeed .. " | YOffset: " .. SETTINGS.YOffset)
-    print("   💀 Респавн: при " .. SETTINGS.MaxBagCoins .. " монетах")
-    print("   📦 Авто-кейсы: в отдельном потоке")
-    print("   🐚 Summer Box '26: " .. (SETTINGS.SummerBoxEnabled and "ВКЛ" or "ВЫКЛ") .. " | Цена: " .. SETTINGS.SummerBoxCost .. " Shells")
-    print("   🎯 Путь: MainGUI.Lobby.Dock.CoinBags...")
-    print("")
     
     while SETTINGS.Enabled do
         pcall(function()
@@ -598,7 +535,6 @@ spawn(function()
             local currentBag = getBagCoins()
             
             if currentBag >= SETTINGS.MaxBagCoins then
-                print(" [FARM] МЕШОК ПОЛНЫЙ: " .. currentBag .. "/" .. SETTINGS.MaxBagCoins)
                 if currentTween then currentTween:Cancel(); currentTween = nil end
                 isMoving = false
                 if SETTINGS.AutoRespawn and not isRespawning then
@@ -624,9 +560,6 @@ spawn(function()
                 markCollected(coin)
                 lastTarget = nil
                 coinCounter = coinCounter + 1
-                if coinCounter % 10 == 0 then
-                    print("💰 [FARM] Собрано: " .. coinCounter .. " | Мешок: " .. currentBag .. "/" .. SETTINGS.MaxBagCoins)
-                end
                 return
             end
 

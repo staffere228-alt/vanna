@@ -1,57 +1,124 @@
--- 🎯 УЛЬТИМАТИВНЫЙ ТЕСТ: ПЕРЕХВАТ ВСЕХ REMOTES
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+--  АВТО-КЛИК SUMMER BOX '26 (без remotes)
 local Players = game:GetService("Players")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local RunService = game:GetService("RunService")
 local LP = Players.LocalPlayer
 
-print("🎯 [ULTIMATE TEST] Перехват ВСЕХ remotes")
-print("📋 Инструкция:")
-print("   1. Запусти скрипт")
-print("   2. Открой магазин")
-print("   3. Кликни на Summer Box '26")
-print("   4. Смотри какой remote вызвался")
+print("🎯 [AUTO-CLICK] Summer Box '26 через GUI")
+print("📋 Скрипт будет кликать кнопку Summer Box каждые 3 секунды")
 print("")
 
-wait(5)
+local SETTINGS = {
+    Enabled = true,
+    ClickDelay = 3,        -- задержка между кликами
+    ShellsNeeded = 120,    -- минимальный баланс для клика
+}
 
--- Перехватываем ВСЕ RemoteEvent и RemoteFunction
-local hooked = 0
-
-for _, remote in ipairs(ReplicatedStorage:GetDescendants()) do
-    if remote:IsA("RemoteEvent") then
-        pcall(function()
-            local oldFire = remote.FireServer
-            remote.FireServer = function(self, ...)
-                local args = {...}
-                print("📤 [RemoteEvent] " .. remote:GetFullName())
-                for i, v in ipairs(args) do
-                    print("   arg" .. i .. ": " .. tostring(v) .. " (" .. typeof(v) .. ")")
-                end
-                return oldFire(self, ...)
-            end
-            hooked = hooked + 1
-        end)
-    elseif remote:IsA("RemoteFunction") then
-        pcall(function()
-            local oldInvoke = remote.InvokeServer
-            remote.InvokeServer = function(self, ...)
-                local args = {...}
-                print("📤 [RemoteFunction] " .. remote:GetFullName())
-                for i, v in ipairs(args) do
-                    print("   arg" .. i .. ": " .. tostring(v) .. " (" .. typeof(v) .. ")")
-                end
-                return oldInvoke(self, ...)
-            end
-            hooked = hooked + 1
-        end)
-    end
+-- Функция клика по кнопке
+local function clickButton(button)
+    if not button or not button.Visible then return false end
+    if button.AbsoluteSize.X < 10 or button.AbsoluteSize.Y < 10 then return false end
+    
+    local pos = button.AbsolutePosition + button.AbsoluteSize / 2
+    pcall(function()
+        VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 1)
+        task.wait(0.05)
+        VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 1)
+    end)
+    return true
 end
 
-print("✅ Перехвачено remotes: " .. hooked)
-print("")
-print("👉 ТЕПЕРЬ ОТКРОЙ МАГАЗИН И КЛИКНИ НА SUMMER BOX '26")
-print("   Скрипт покажет ТОЧНЫЙ remote и аргументы")
-print("")
+-- Поиск кнопки Summer Box
+local function findSummerBoxButton()
+    local pg = LP:FindFirstChild("PlayerGui")
+    if not pg then return nil end
+    
+    -- Ищем по имени и тексту
+    for _, obj in ipairs(pg:GetDescendants()) do
+        if obj:IsA("TextButton") or obj:IsA("ImageButton") then
+            local name = obj.Name:lower()
+            local text = ""
+            if obj:IsA("TextButton") then text = obj.Text:lower() end
+            
+            -- Ищем Summer Box
+            if name:find("summer") and (name:find("box") or name:find("crate") or name:find("26")) then
+                if obj.Visible and obj.AbsoluteSize.X > 20 then
+                    return obj
+                end
+            end
+            
+            -- Или по тексту
+            if text:find("summer") and text:find("box") then
+                if obj.Visible and obj.AbsoluteSize.X > 20 then
+                    return obj
+                end
+            end
+        end
+    end
+    
+    return nil
+end
 
--- Ждём 120 секунд
-wait(120)
-print("⏰ Тест завершён (120 сек)")
+-- Получение баланса Shells
+local function getShells()
+    local pg = LP:FindFirstChild("PlayerGui")
+    if not pg then return 0 end
+    
+    -- Ищем в Summer2026 UI
+    local summer = pg:FindFirstChild("CrossPlatform")
+    if summer then
+        summer = summer:FindFirstChild("Summer2026")
+        if summer then
+            for _, d in ipairs(summer:GetDescendants()) do
+                if d:IsA("TextLabel") then
+                    local text = d.Text or ""
+                    if text:lower():find("shell") or d.Name:lower():find("shell") then
+                        local num = tonumber(string.match(text, "%d+") or "0")
+                        if num and num > 0 then return num end
+                    end
+                end
+            end
+        end
+    end
+    
+    return 0
+end
+
+-- Главный цикл
+spawn(function()
+    print("✅ [AUTO-CLICK] Запущен")
+    local clicks = 0
+    
+    while SETTINGS.Enabled do
+        local shells = getShells()
+        
+        if shells >= SETTINGS.ShellsNeeded then
+            local button = findSummerBoxButton()
+            
+            if button then
+                print("🖱️ [AUTO-CLICK] Кликаю Summer Box | Shells: " .. shells)
+                clickButton(button)
+                clicks = clicks + 1
+                print("   Кликов: " .. clicks)
+            else
+                -- Кнопка не найдена — возможно магазин закрыт
+                if clicks > 0 and clicks % 10 == 0 then
+                    print("⚠️ [AUTO-CLICK] Кнопка не найдена (магазин закрыт?)")
+                end
+            end
+        else
+            if shells > 0 then
+                print("⏳ [AUTO-CLICK] Жду Shells: " .. shells .. "/" .. SETTINGS.ShellsNeeded)
+            end
+        end
+        
+        wait(SETTINGS.ClickDelay)
+    end
+end)
+
+print("")
+print("💡 Инструкция:")
+print("   1. Открой магазин в игре")
+print("   2. Найди Summer Box '26")
+print("   3. Скрипт будет кликать автоматически каждые 3 сек")
+print("   4. Если не работает — напиши точное название кнопки")

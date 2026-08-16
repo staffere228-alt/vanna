@@ -1,7 +1,7 @@
 --[[
-Auto Farm + Auto Crate - MM2 | FINAL BUILD + SUMMER 2026 CRATE
+Auto Farm + Auto Crate - MM2 | FINAL BUILD + ALL CRATES
 - Скорость 20 studs/sec (постоянная)
-- АВТО-КЕЙСЫ: Summer2026Box (10 попыток) + запасной режим Random
+- АВТО-КЕЙСЫ: Summer2026Box + обычные кейсы, без лимита попыток
 - РЕСПАВН: Health=0 + ChangeState(Dead)
 - ПУТЬ К МОНЕТАМ: MainGUI.Lobby.Dock.CoinBags...
 - NoClip ULTIMATE + Антигравитация
@@ -34,10 +34,9 @@ local SETTINGS = {
 
     -- Авто-кейсы
     AutoCrate = true,
-    CrateMode = "Summer2026", -- "Summer2026" / "Random" / "Off"
-    SummerCrateLoops = 10,    -- 10 попыток как во втором скрипте; 0 = бесконечно
-    SummerCrateDelay = 2.5,
-    RandomCrateDelay = 2.5,
+    CrateMode = "All", -- All / Summer2026 / Random / Off
+    CrateDelay = 0.7,
+    CrateFailDelay = 1.0,
 }
 
 local MAX_IGNORED = 10
@@ -497,7 +496,7 @@ local Shop = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Shop")
 local OpenCrate = Shop:WaitForChild("OpenCrate")
 local BoxController = Shop:WaitForChild("BoxController")
 
--- Старый рандомный режим
+-- Обычные кейсы
 local RANDOM_BOXES = {
     "KnifeBox1",
     "KnifeBox2",
@@ -514,7 +513,7 @@ local RANDOM_CURRENCIES = {
     "Key",
 }
 
--- Твой летний кейс
+-- Летний кейс
 local SUMMER_BOX = "Summer2026Box"
 local SUMMER_CURRENCIES = {
     "SummerKey2026",
@@ -534,20 +533,29 @@ local function fireBoxController(payload)
     end)
 end
 
+local function tryOpenCrate(boxId, currency)
+    local ok, item = pcall(function()
+        return OpenCrate:InvokeServer(boxId, "MysteryBox", currency)
+    end)
+
+    if ok and item ~= nil and item ~= false then
+        fireBoxController({{
+            MysteryBoxId = boxId,
+            RewardedItemId = item,
+        }})
+
+        print("✅ [CRATE] Кейс: " .. tostring(boxId) .. " | Валюта: " .. tostring(currency) .. " | Выпало: " .. tostring(item))
+        return true, item
+    end
+
+    return false, nil
+end
+
 local function openSummerCrate()
     for _, currency in ipairs(SUMMER_CURRENCIES) do
-        local ok, item = pcall(function()
-            return OpenCrate:InvokeServer(SUMMER_BOX, "MysteryBox", currency)
-        end)
-
-        if ok and item ~= nil and item ~= false then
-            fireBoxController({{
-                MysteryBoxId = SUMMER_BOX,
-                RewardedItemId = item,
-            }})
-
-            print("✅ [SUMMER CRATE] " .. tostring(SUMMER_BOX) .. " | Валюта: " .. tostring(currency) .. " | Выпало: " .. tostring(item))
-            return true, currency, item
+        local success, item = tryOpenCrate(SUMMER_BOX, currency)
+        if success then
+            return true, SUMMER_BOX, currency, item
         end
     end
 
@@ -555,21 +563,12 @@ local function openSummerCrate()
 end
 
 local function openRandomCrate()
-    local boxId = RANDOM_BOXES[math.random(1, #RANDOM_BOXES)]
-
-    for _, currency in ipairs(RANDOM_CURRENCIES) do
-        local ok, result = pcall(function()
-            return OpenCrate:InvokeServer(boxId, "MysteryBox", currency)
-        end)
-
-        if ok and result ~= nil and result ~= false then
-            fireBoxController({{
-                MysteryBoxId = boxId,
-                RewardedItemId = result,
-            }})
-
-            print("✅ [RANDOM CRATE] " .. tostring(boxId) .. " | " .. tostring(currency) .. " | Выпало: " .. tostring(result))
-            return true
+    for _, boxId in ipairs(RANDOM_BOXES) do
+        for _, currency in ipairs(RANDOM_CURRENCIES) do
+            local success, item = tryOpenCrate(boxId, currency)
+            if success then
+                return true, boxId, currency, item
+            end
         end
     end
 
@@ -582,71 +581,50 @@ spawn(function()
         return
     end
 
-    print("🔥 [CRATE] Auto Opener запущен: " .. tostring(SETTINGS.CrateMode))
+    print("🔥 [CRATE] Авто-открытие без лимита: " .. tostring(SETTINGS.CrateMode))
 
-    local openedCount = 0
-    local failedCount = 0
-    local waitingForMoney = false
+    local waitingForCurrency = false
 
-    if SETTINGS.CrateMode == "Summer2026" then
-        local loops = SETTINGS.SummerCrateLoops or 10
-        local attempt = 0
+    while SETTINGS.Enabled do
+        local success = false
 
-        while SETTINGS.Enabled and (loops == 0 or attempt < loops) do
-            attempt = attempt + 1
+        if SETTINGS.CrateMode == "Summer2026" then
+            success = openSummerCrate()
 
-            local success = openSummerCrate()
+        elseif SETTINGS.CrateMode == "Random" then
+            success = openRandomCrate()
 
-            if success then
-                if waitingForMoney then
-                    print("💰 [SUMMER CRATE] Валюта/ключи снова прошли!")
-                    waitingForMoney = false
-                end
+        elseif SETTINGS.CrateMode == "All" then
+            local summerSuccess = openSummerCrate()
+            wait(0.2)
+            local randomSuccess = openRandomCrate()
 
-                openedCount = openedCount + 1
-                print("📦 [SUMMER CRATE] Попытка " .. attempt .. "/" .. (loops == 0 and "∞" or loops) .. " | Открыто: " .. openedCount .. " | Ошибок: " .. failedCount)
-                wait(SETTINGS.SummerCrateDelay)
-            else
-                failedCount = failedCount + 1
+            success = summerSuccess or randomSuccess
 
-                if not waitingForMoney then
-                    warn("⏳ [SUMMER CRATE] Сервер отклонил все валюты (нет SummerKey2026 / Shells / BeachBalls2026?)")
-                    waitingForMoney = true
-                end
-
-                wait(5)
+        else
+            if not waitingForCurrency then
+                warn("❌ [CRATE] Неизвестный CrateMode: " .. tostring(SETTINGS.CrateMode))
+                waitingForCurrency = true
             end
+
+            wait(2)
         end
 
-        print("🏁 [SUMMER CRATE] Цикл завершён. Открыто: " .. openedCount .. " | Ошибок: " .. failedCount)
-
-    elseif SETTINGS.CrateMode == "Random" then
-        while SETTINGS.Enabled do
-            local success = openRandomCrate()
-
-            if success then
-                if waitingForMoney then
-                    print("💰 [RANDOM CRATE] Деньги/ключи появились!")
-                    waitingForMoney = false
-                end
-
-                openedCount = openedCount + 1
-                print("📦 [RANDOM CRATE] Открыто: " .. openedCount .. " | Ошибок: " .. failedCount)
-                wait(SETTINGS.RandomCrateDelay)
-            else
-                failedCount = failedCount + 1
-
-                if not waitingForMoney then
-                    print("⏳ [RANDOM CRATE] Нет денег/ключей. Ожидаю...")
-                    waitingForMoney = true
-                end
-
-                wait(5)
+        if success then
+            if waitingForCurrency then
+                print("💰 [CRATE] Снова есть валюта/ключи, продолжаю открывать.")
+                waitingForCurrency = false
             end
-        end
 
-    else
-        warn("❌ [CRATE] Неизвестный CrateMode: " .. tostring(SETTINGS.CrateMode))
+            wait(SETTINGS.CrateDelay)
+        else
+            if not waitingForCurrency then
+                warn("⏳ [CRATE] Пока не удалось открыть ни один кейс. Продолжаю без остановки.")
+                waitingForCurrency = true
+            end
+
+            wait(SETTINGS.CrateFailDelay)
+        end
     end
 end)
 

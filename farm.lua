@@ -1,1 +1,1 @@
-loadstring(game:HttpGet('https://raw.githubusercontent.com/Roman34296589/SnapSanixHUB/refs/heads/main/SnapSanixHUB.lua'))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Dev-VoltHub/Blox-fruits/main/volt.lua"))()

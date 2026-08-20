@@ -1,11 +1,12 @@
 --[[
-Auto Farm + Auto Crate - MM2 | FINAL BUILD + ALL CRATES
+Auto Farm + Auto Crate - MM2 | FINAL BUILD + ALL CRATES + SMART RECONNECT
 - Скорость 20 studs/sec (постоянная)
 - АВТО-КЕЙСЫ: Summer2026Box + обычные кейсы, без лимита попыток
 - РЕСПАВН: Health=0 + ChangeState(Dead)
 - ПУТЬ К МОНЕТАМ: MainGUI.Lobby.Dock.CoinBags...
 - NoClip ULTIMATE + Антигравитация
 - YOffset = -3
+- SMART RECONNECT: ловит 319, 317, 304 + фразы disconnected/timeout через CoreGui
 ]]
 
 -- ================= 🛠️ СЕРВИСЫ =================
@@ -18,6 +19,7 @@ local GuiService = game:GetService("GuiService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local PhysicsService = game:GetService("PhysicsService")
 local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 
 -- ================= ⚙️ НАСТРОЙКИ =================
@@ -44,53 +46,202 @@ local IGNORE_DUR = 3.0
 local isReconnecting = false
 local isRespawning = false
 
--- ================= 🔌 РЕКОННЕКТ =================
+-- ================= 🔌 SMART RECONNECT =================
+local RECONNECT_CODES = {
+    ["319"] = true,
+    ["317"] = true,
+    ["304"] = true,
+    ["267"] = true,
+    ["279"] = true,
+    ["529"] = true,
+    ["277"] = true,
+    ["280"] = true,
+    ["283"] = true,
+}
+
+local RECONNECT_PHRASES = {
+    "disconnected",
+    "connection lost",
+    "connection failed",
+    "timed out",
+    "timeout",
+    "network",
+    "unable to connect",
+    "server has shut down",
+    "check your internet",
+    "kicked",
+    "you have been kicked",
+    "client was disconnected",
+    "leave game",
+    "reconnect",
+}
+
+local function isDisconnectText(text)
+    text = tostring(text or "")
+    if text == "" then
+        return false, nil
+    end
+
+    for code in pairs(RECONNECT_CODES) do
+        if text:find(code, 1, true) then
+            return true, "code " .. code
+        end
+    end
+
+    local lower = text:lower()
+    for _, phrase in ipairs(RECONNECT_PHRASES) do
+        if lower:find(phrase, 1, true) then
+            return true, "phrase " .. phrase
+        end
+    end
+
+    return false, nil
+end
+
 local function forceReconnect(reason)
     if isReconnecting then return end
     isReconnecting = true
-    print("🔌 Reconnecting: " .. tostring(reason))
+    warn("🔌 [RECONNECT] Причина: " .. tostring(reason))
 
     spawn(function()
         wait(SETTINGS.ReconnectDelay)
-        pcall(function()
-            TeleportService:Teleport(game.PlaceId, LocalPlayer)
-        end)
+
+        for attempt = 1, 6 do
+            local ok, err = pcall(function()
+                TeleportService:Teleport(game.PlaceId, LocalPlayer)
+            end)
+
+            if not ok then
+                ok, err = pcall(function()
+                    TeleportService:Teleport(game.PlaceId)
+                end)
+            end
+
+            if ok then
+                warn("🔌 [RECONNECT] Teleport вызван, попытка: " .. attempt)
+                return
+            end
+
+            warn("🔌 [RECONNECT] Попытка " .. attempt .. " ошибка: " .. tostring(err))
+            wait(1.5 * attempt)
+        end
+
+        warn("🔌 [RECONNECT] TeleportService не смог. Ждём...")
+        wait(15)
+        isReconnecting = false
     end)
 
-    while true do
-        wait(1)
-        if not LocalPlayer or not LocalPlayer.Parent then
-            break
-        end
-    end
+    delay(30, function()
+        isReconnecting = false
+    end)
 end
 
+-- 1. GuiService.ErrorMessageChanged
 pcall(function()
     GuiService.ErrorMessageChanged:Connect(function(errorMessage)
-        if errorMessage and errorMessage ~= "" then
-            forceReconnect("Error: " .. errorMessage)
+        local hit, why = isDisconnectText(errorMessage)
+        if hit then
+            forceReconnect("ErrorMessageChanged: " .. tostring(why))
         end
     end)
 end)
 
+-- 2. CoreGui / RobloxPromptGui (самое важное для 319/317/304)
+pcall(function()
+    local function scanObject(obj)
+        pcall(function()
+            if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
+                local hit, why = isDisconnectText(obj.Text)
+                if hit then
+                    forceReconnect("Prompt: " .. tostring(why))
+                end
+            end
+        end)
+    end
+
+    local function hookRoot(root)
+        pcall(function()
+            if root:GetAttribute("RC_HOOKED") then return end
+            root:SetAttribute("RC_HOOKED", true)
+
+            for _, desc in ipairs(root:GetDescendants()) do
+                scanObject(desc)
+            end
+
+            root.DescendantAdded:Connect(function(desc)
+                wait(0.05)
+                scanObject(desc)
+            end)
+        end)
+    end
+
+    local function attachPromptGui(promptGui)
+        hookRoot(promptGui)
+
+        local overlay = promptGui:FindFirstChild("promptOverlay")
+        if overlay then
+            hookRoot(overlay)
+            overlay.ChildAdded:Connect(function(child)
+                wait(0.1)
+                hookRoot(child)
+            end)
+        end
+
+        promptGui.ChildAdded:Connect(function(child)
+            wait(0.1)
+            hookRoot(child)
+        end)
+    end
+
+    local promptGui = CoreGui:FindFirstChild("RobloxPromptGui")
+    if promptGui then
+        attachPromptGui(promptGui)
+    end
+
+    CoreGui.ChildAdded:Connect(function(child)
+        if child.Name == "RobloxPromptGui" then
+            wait(0.1)
+            attachPromptGui(child)
+        end
+    end)
+end)
+
+-- 3. NetworkClient
+pcall(function()
+    local NetworkClient = game:GetService("NetworkClient")
+    pcall(function()
+        NetworkClient.ConnectionFailed:Connect(function(msg)
+            forceReconnect("NetworkClient.ConnectionFailed: " .. tostring(msg))
+        end)
+    end)
+    pcall(function()
+        NetworkClient.Disconnected:Connect(function(msg)
+            forceReconnect("NetworkClient.Disconnected: " .. tostring(msg))
+        end)
+    end)
+end)
+
+-- 4. PlayerRemoving
 Players.PlayerRemoving:Connect(function(player)
     if player == LocalPlayer then
         forceReconnect("PlayerRemoving")
     end
 end)
 
+-- 5. OnTeleport
 LocalPlayer.OnTeleport:Connect(function(state)
-    if state == Enum.TeleportState.Failed or state == Enum.TeleportState.Started then
-        forceReconnect("OnTeleport: " .. tostring(state))
+    if state == Enum.TeleportState.Failed then
+        forceReconnect("OnTeleport: Failed")
     end
 end)
 
+-- 6. Heartbeat (доп. страховка)
 local consecutiveFailures = 0
 RunService.Heartbeat:Connect(function()
     if not LocalPlayer or not LocalPlayer.Parent then
         consecutiveFailures = consecutiveFailures + 1
         if consecutiveFailures >= 3 and not isReconnecting then
-            forceReconnect("Heartbeat")
+            forceReconnect("Heartbeat (no LocalPlayer)")
         end
     else
         consecutiveFailures = 0
@@ -130,9 +281,7 @@ local antiGravForce = nil
 
 local function setupAntiGravity(hrp)
     if antiGravForce then
-        pcall(function()
-            antiGravForce:Destroy()
-        end)
+        pcall(function() antiGravForce:Destroy() end)
     end
 
     local att = hrp:FindFirstChild("AntiGravAttachment")
@@ -155,9 +304,7 @@ end
 
 local function removeAntiGravity()
     if antiGravForce then
-        pcall(function()
-            antiGravForce:Destroy()
-        end)
+        pcall(function() antiGravForce:Destroy() end)
         antiGravForce = nil
     end
 end
@@ -222,9 +369,7 @@ local function disableNoClip()
     noclipActive = false
 
     if currentTween then
-        pcall(function()
-            currentTween:Cancel()
-        end)
+        pcall(function() currentTween:Cancel() end)
         currentTween = nil
     end
 
@@ -325,7 +470,6 @@ local function getHRP()
     return char and char:FindFirstChild("HumanoidRootPart")
 end
 
--- ✅ ПРАВИЛЬНЫЙ ПУТЬ К МОНЕТАМ В МЕШКЕ
 local function getBagCoins()
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not playerGui then return 0 end
@@ -334,7 +478,6 @@ local function getBagCoins()
         return p and p:FindFirstChild(n)
     end
 
-    -- Правильный путь: MainGUI.Lobby.Dock.CoinBags.Container.Coin.CurrencyFrame.Icon.Coins
     local obj = sf(sf(sf(sf(sf(sf(sf(sf(
         playerGui,
         "MainGUI"),
@@ -381,9 +524,7 @@ local function forceRespawn()
     end
 
     if currentTween then
-        pcall(function()
-            currentTween:Cancel()
-        end)
+        pcall(function() currentTween:Cancel() end)
         currentTween = nil
     end
 
@@ -471,9 +612,7 @@ end
 -- ================= 🚀 TWEEN =================
 local function tweenToTarget(hrp, targetPos)
     if currentTween then
-        pcall(function()
-            currentTween:Cancel()
-        end)
+        pcall(function() currentTween:Cancel() end)
     end
 
     local dist = (targetPos - hrp.Position).Magnitude
@@ -496,7 +635,6 @@ local Shop = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Shop")
 local OpenCrate = Shop:WaitForChild("OpenCrate")
 local BoxController = Shop:WaitForChild("BoxController")
 
--- Обычные кейсы
 local RANDOM_BOXES = {
     "KnifeBox1",
     "KnifeBox2",
@@ -513,7 +651,6 @@ local RANDOM_CURRENCIES = {
     "Key",
 }
 
--- Летний кейс
 local SUMMER_BOX = "Summer2026Box"
 local SUMMER_CURRENCIES = {
     "SummerKey2026",
@@ -645,11 +782,11 @@ local coinCounter = 0
 local lastTarget = nil
 
 spawn(function()
-    print("✅ AUTO FARM + AUTO CRATE ACTIVE")
+    print("✅ AUTO FARM + AUTO CRATE + SMART RECONNECT ACTIVE")
     print("   Speed: " .. SETTINGS.MoveSpeed .. " | YOffset: " .. SETTINGS.YOffset)
     print("   💀 Респавн: при " .. SETTINGS.MaxBagCoins .. " монетах")
     print("   📦 Авто-кейсы: " .. tostring(SETTINGS.CrateMode))
-    print("   🎯 Путь: MainGUI.Lobby.Dock.CoinBags...")
+    print("   🔌 Smart reconnect: 319/317/304 + disconnected через CoreGui")
     print("")
 
     while SETTINGS.Enabled do

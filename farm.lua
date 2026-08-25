@@ -1,7 +1,7 @@
 --[[
-Auto Farm + Auto Crate - MM2 | FINAL BUILD + RECONNECT FIX | NO SUMMER CASE
+Auto Farm + Auto Crate - MM2 | FINAL BUILD + RECONNECT FIX
 - Скорость 20 studs/sec
-- АВТО-КЕЙСЫ: только обычные кейсы, без Summer2026Box
+- АВТО-КЕЙСЫ: Summer2026Box + обычные кейсы
 - РЕСПАВН: Health=0 + ChangeState(Dead)
 - ПУТЬ К МОНЕТАМ: MainGUI.Lobby.Dock.CoinBags...
 - NoClip ULTIMATE + Антигравитация
@@ -49,7 +49,7 @@ local SETTINGS = {
 
     -- Авто-кейсы
     AutoCrate = true,
-    CrateMode = "Random", -- Random / Off
+    CrateMode = "All", -- All / Summer2026 / Random / Off
     CrateDelay = 0.7,
     CrateFailDelay = 1.0,
 }
@@ -740,6 +740,14 @@ local RANDOM_CURRENCIES = {
     "Key",
 }
 
+-- Летний кейс
+local SUMMER_BOX = "Summer2026Box"
+local SUMMER_CURRENCIES = {
+    "SummerKey2026",
+    "Shells",
+    "BeachBalls2026",
+}
+
 local function fireBoxController(payload)
     if not BoxController then
         return
@@ -776,6 +784,17 @@ local function tryOpenCrate(boxId, currency)
     return false, nil
 end
 
+local function openSummerCrate()
+    for _, currency in ipairs(SUMMER_CURRENCIES) do
+        local success, item = tryOpenCrate(SUMMER_BOX, currency)
+        if success then
+            return true, SUMMER_BOX, currency, item
+        end
+    end
+
+    return false
+end
+
 local function openRandomCrate()
     for _, boxId in ipairs(RANDOM_BOXES) do
         for _, currency in ipairs(RANDOM_CURRENCIES) do
@@ -807,17 +826,32 @@ spawn(function()
         return
     end
 
-    print("🔥 [CRATE] Авто-открытие обычных кейсов: " .. tostring(SETTINGS.CrateMode))
+    print("🔥 [CRATE] Авто-открытие без лимита: " .. tostring(SETTINGS.CrateMode))
 
     local waitingForCurrency = false
 
     while SETTINGS.Enabled do
         local success = false
 
-        if SETTINGS.CrateMode == "Random" then
+        if SETTINGS.CrateMode == "Summer2026" then
+            success = openSummerCrate()
+
+        elseif SETTINGS.CrateMode == "Random" then
             success = openRandomCrate()
+
+        elseif SETTINGS.CrateMode == "All" then
+            local summerSuccess = openSummerCrate()
+            wait(0.2)
+            local randomSuccess = openRandomCrate()
+
+            success = summerSuccess or randomSuccess
+
         else
-            warn("❌ [CRATE] Неизвестный CrateMode: " .. tostring(SETTINGS.CrateMode))
+            if not waitingForCurrency then
+                warn("❌ [CRATE] Неизвестный CrateMode: " .. tostring(SETTINGS.CrateMode))
+                waitingForCurrency = true
+            end
+
             wait(2)
         end
 
@@ -859,7 +893,7 @@ spawn(function()
     print("✅ AUTO FARM + AUTO CRATE ACTIVE")
     print("   Speed: " .. SETTINGS.MoveSpeed .. " | YOffset: " .. SETTINGS.YOffset)
     print("   💀 Респавн: при " .. SETTINGS.MaxBagCoins .. " монетах")
-    print("   📦 Авто-кейсы: только обычные")
+    print("   📦 Авто-кейсы: " .. tostring(SETTINGS.CrateMode))
     print("   🎯 Путь: MainGUI.Lobby.Dock.CoinBags...")
     print("")
 

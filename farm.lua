@@ -1,17 +1,12 @@
 --[[
-Auto Farm + Auto Crate - MM2 | FINAL BUILD + RECONNECT FIX
-- Скорость 20 studs/sec
-- АВТО-КЕЙСЫ: Summer2026Box + обычные кейсы
+Auto Farm + Auto Crate - MM2 | FINAL BUILD + ALL CRATES
+- Скорость 20 studs/sec (постоянная)
+- АВТО-КЕЙСЫ: Summer2026Box + обычные кейсы, без лимита попыток
 - РЕСПАВН: Health=0 + ChangeState(Dead)
 - ПУТЬ К МОНЕТАМ: MainGUI.Lobby.Dock.CoinBags...
 - NoClip ULTIMATE + Антигравитация
 - YOffset = -3
-- Исправленный reconnect под 319 / 317 / 304
 ]]
-
-if not game:IsLoaded() then
-    game.Loaded:Wait()
-end
 
 -- ================= 🛠️ СЕРВИСЫ =================
 local VirtualInputManager = game:GetService("VirtualInputManager")
@@ -23,17 +18,7 @@ local GuiService = game:GetService("GuiService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local PhysicsService = game:GetService("PhysicsService")
 local RunService = game:GetService("RunService")
-
-local CoreGui = nil
-pcall(function()
-    CoreGui = game:GetService("CoreGui")
-end)
-
 local LocalPlayer = Players.LocalPlayer
-while not LocalPlayer do
-    wait()
-    LocalPlayer = Players.LocalPlayer
-end
 
 -- ================= ⚙️ НАСТРОЙКИ =================
 local SETTINGS = {
@@ -59,201 +44,53 @@ local IGNORE_DUR = 3.0
 local isReconnecting = false
 local isRespawning = false
 
--- ================= 🔌 RECONNECT FIX =================
-local RECONNECT_CODES = {
-    ["319"] = true,
-    ["317"] = true,
-    ["304"] = true,
-    ["267"] = true,
-    ["279"] = true,
-    ["529"] = true,
-}
-
-local RECONNECT_PHRASES = {
-    "disconnected",
-    "connection",
-    "timed out",
-    "timeout",
-    "network",
-    "unable to connect",
-    "server has shut down",
-    "check your internet",
-}
-
-local function isDisconnectText(text)
-    text = tostring(text or "")
-    if text == "" then
-        return false, nil
-    end
-
-    for code in pairs(RECONNECT_CODES) do
-        if text:find(code, 1, true) then
-            return true, "code " .. code
-        end
-    end
-
-    local lower = text:lower()
-    for _, phrase in ipairs(RECONNECT_PHRASES) do
-        if lower:find(phrase, 1, true) then
-            return true, "phrase " .. phrase
-        end
-    end
-
-    return false, nil
-end
-
+-- ================= 🔌 РЕКОННЕКТ =================
 local function forceReconnect(reason)
-    if isReconnecting then
-        return
-    end
-
+    if isReconnecting then return end
     isReconnecting = true
-    warn("🔌 [RECONNECT] Причина: " .. tostring(reason))
+    print("🔌 Reconnecting: " .. tostring(reason))
 
     spawn(function()
         wait(SETTINGS.ReconnectDelay)
+        pcall(function()
+            TeleportService:Teleport(game.PlaceId, LocalPlayer)
+        end)
+    end)
 
-        for attempt = 1, 6 do
-            local ok, err = pcall(function()
-                TeleportService:Teleport(game.PlaceId, Players.LocalPlayer)
-            end)
-
-            if not ok then
-                ok, err = pcall(function()
-                    TeleportService:Teleport(game.PlaceId)
-                end)
-            end
-
-            if ok then
-                warn("🔌 [RECONNECT] Teleport вызван, попытка: " .. attempt)
-                return
-            end
-
-            warn("🔌 [RECONNECT] Попытка " .. attempt .. " ошибка: " .. tostring(err))
-            wait(1.5 * attempt)
+    while true do
+        wait(1)
+        if not LocalPlayer or not LocalPlayer.Parent then
+            break
         end
-
-        warn("🔌 [RECONNECT] TeleportService не смог перезапустить. Нужен внешний auto-rejoin или ручной перезаход.")
-        wait(20)
-        isReconnecting = false
-    end)
-
-    -- Страховка от вечного isReconnecting = true
-    spawn(function()
-        wait(25)
-        isReconnecting = false
-    end)
+    end
 end
 
--- Ловим ErrorMessageChanged, если он вообще сработает
 pcall(function()
     GuiService.ErrorMessageChanged:Connect(function(errorMessage)
-        local hit, why = isDisconnectText(errorMessage)
-        if hit then
-            forceReconnect("ErrorMessageChanged: " .. tostring(why))
+        if errorMessage and errorMessage ~= "" then
+            forceReconnect("Error: " .. errorMessage)
         end
     end)
 end)
 
--- Ловим системные ошибки через CoreGui / RobloxPromptGui
-pcall(function()
-    if not CoreGui then
-        warn("⚠️ [RECONNECT] CoreGui недоступен, prompt-ловушка не будет работать.")
-        return
-    end
-
-    local function scanObject(obj)
-        pcall(function()
-            if obj:IsA("TextLabel") or obj:IsA("TextButton") then
-                local hit, why = isDisconnectText(obj.Text)
-                if hit then
-                    forceReconnect("Prompt: " .. tostring(why))
-                end
-            end
-        end)
-    end
-
-    local function hookRoot(root)
-        pcall(function()
-            if root:GetAttribute("RC_HOOKED") then
-                return
-            end
-
-            root:SetAttribute("RC_HOOKED", true)
-
-            for _, desc in ipairs(root:GetDescendants()) do
-                scanObject(desc)
-            end
-
-            root.DescendantAdded:Connect(scanObject)
-        end)
-    end
-
-    local function attachPromptGui(promptGui)
-        hookRoot(promptGui)
-
-        local overlay = promptGui:FindFirstChild("promptOverlay")
-        if overlay then
-            hookRoot(overlay)
-
-            overlay.ChildAdded:Connect(function(child)
-                wait(0.1)
-                hookRoot(child)
-            end)
-        end
-    end
-
-    local promptGui = CoreGui:FindFirstChild("RobloxPromptGui")
-    if promptGui then
-        attachPromptGui(promptGui)
-    end
-
-    CoreGui.ChildAdded:Connect(function(child)
-        if child.Name == "RobloxPromptGui" then
-            wait(0.1)
-            attachPromptGui(child)
-        end
-    end)
-end)
-
--- Дополнительно ловим сетевые события, если они доступны
-pcall(function()
-    local NetworkClient = game:GetService("NetworkClient")
-
-    pcall(function()
-        NetworkClient.ConnectionFailed:Connect(function(message)
-            forceReconnect("NetworkClient.ConnectionFailed: " .. tostring(message))
-        end)
-    end)
-
-    pcall(function()
-        NetworkClient.Disconnected:Connect(function(message)
-            forceReconnect("NetworkClient.Disconnected: " .. tostring(message))
-        end)
-    end)
-end)
-
--- Перестраховка через PlayerRemoving
 Players.PlayerRemoving:Connect(function(player)
     if player == LocalPlayer then
         forceReconnect("PlayerRemoving")
     end
 end)
 
--- Перестраховка через OnTeleport
 LocalPlayer.OnTeleport:Connect(function(state)
     if state == Enum.TeleportState.Failed or state == Enum.TeleportState.Started then
         forceReconnect("OnTeleport: " .. tostring(state))
     end
 end)
 
--- Перестраховка через Heartbeat
 local consecutiveFailures = 0
 RunService.Heartbeat:Connect(function()
     if not LocalPlayer or not LocalPlayer.Parent then
         consecutiveFailures = consecutiveFailures + 1
-        if consecutiveFailures >= 5 and not isReconnecting then
-            forceReconnect("Heartbeat: LocalPlayer missing")
+        if consecutiveFailures >= 3 and not isReconnecting then
+            forceReconnect("Heartbeat")
         end
     else
         consecutiveFailures = 0
@@ -305,15 +142,10 @@ local function setupAntiGravity(hrp)
         att.Parent = hrp
     end
 
-    local mass = hrp.AssemblyMass
-    if mass <= 0 then
-        mass = 5
-    end
-
     local vf = Instance.new("VectorForce")
     vf.Name = "AntiGravity"
     vf.Attachment0 = att
-    vf.Force = Vector3.new(0, mass * 196.2, 0)
+    vf.Force = Vector3.new(0, hrp.AssemblyMass * 196.2, 0)
     vf.RelativeTo = Enum.ActuatorRelativeTo.World
     vf.ApplyAtCenterOfMass = true
     vf.Parent = hrp
@@ -331,9 +163,7 @@ local function removeAntiGravity()
 end
 
 local function applyUltimateNoClip(character)
-    if not character then
-        return
-    end
+    if not character then return end
 
     pcall(function()
         PhysicsService:RegisterCollisionGroup("UltimateNC")
@@ -343,7 +173,6 @@ local function applyUltimateNoClip(character)
     local hum = character:FindFirstChildOfClass("Humanoid")
     if hum then
         hum.PlatformStand = true
-
         pcall(function()
             hum:ChangeState(Enum.HumanoidStateType.Physics)
         end)
@@ -370,7 +199,6 @@ local function applyUltimateNoClip(character)
         if part:IsA("BasePart") then
             part.CanCollide = false
             part.Massless = true
-
             pcall(function()
                 part.CollisionGroup = "UltimateNC"
             end)
@@ -384,17 +212,12 @@ local function applyUltimateNoClip(character)
 end
 
 local function enableNoClip()
-    if noclipActive then
-        return
-    end
-
+    if noclipActive then return end
     noclipActive = true
 end
 
 local function disableNoClip()
-    if not noclipActive then
-        return
-    end
+    if not noclipActive then return end
 
     noclipActive = false
 
@@ -409,14 +232,11 @@ local function disableNoClip()
     removeAntiGravity()
 
     local char = LocalPlayer.Character
-    if not char then
-        return
-    end
+    if not char then return end
 
     local hum = char:FindFirstChildOfClass("Humanoid")
     if hum then
         hum.PlatformStand = false
-
         pcall(function()
             hum:ChangeState(Enum.HumanoidStateType.GettingUp)
         end)
@@ -443,7 +263,6 @@ local function disableNoClip()
         if part:IsA("BasePart") then
             part.CanCollide = true
             part.Massless = false
-
             pcall(function()
                 part.CollisionGroup = "Default"
             end)
@@ -458,12 +277,7 @@ RunService.Heartbeat:Connect(function()
 
             local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
             if hrp and antiGravForce then
-                local mass = hrp.AssemblyMass
-                if mass <= 0 then
-                    mass = 5
-                end
-
-                antiGravForce.Force = Vector3.new(0, mass * 196.2, 0)
+                antiGravForce.Force = Vector3.new(0, hrp.AssemblyMass * 196.2, 0)
             end
         end)
     end
@@ -505,32 +319,22 @@ LocalPlayer.CharacterAdded:Connect(function(char)
     end
 end)
 
--- Если уже есть персонаж при запуске
-if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-    delay(5, function()
-        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-            isRoundActive = true
-            enableNoClip()
-        end
-    end)
-end
-
 -- ================= 🛠️ ВСПОМОГАТЕЛЬНЫЕ =================
 local function getHRP()
     local char = LocalPlayer.Character
     return char and char:FindFirstChild("HumanoidRootPart")
 end
 
+-- ✅ ПРАВИЛЬНЫЙ ПУТЬ К МОНЕТАМ В МЕШКЕ
 local function getBagCoins()
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    if not playerGui then
-        return 0
-    end
+    if not playerGui then return 0 end
 
     local function sf(p, n)
         return p and p:FindFirstChild(n)
     end
 
+    -- Правильный путь: MainGUI.Lobby.Dock.CoinBags.Container.Coin.CurrencyFrame.Icon.Coins
     local obj = sf(sf(sf(sf(sf(sf(sf(sf(
         playerGui,
         "MainGUI"),
@@ -546,9 +350,7 @@ local function getBagCoins()
         obj = obj:FindFirstChild("Coins")
     end
 
-    if not obj then
-        return 0
-    end
+    if not obj then return 0 end
 
     local text = obj:IsA("TextLabel") and obj.Text or ""
     return tonumber(string.match(text, "%d+") or "0") or 0
@@ -620,9 +422,6 @@ local function forceRespawn()
                 enableNoClip()
                 print("✅ NoClip включён после retry")
             end
-        else
-            warn("❌ Респавн не удался, пробую reconnect...")
-            forceReconnect("Respawn failed")
         end
     end
 
@@ -633,33 +432,26 @@ end
 -- ================= 🪙 ИГНОР МОНЕТ =================
 local function isCollected(coin)
     local now = tick()
-
     for _, d in ipairs(collectedCoins) do
         if d.coin == coin and now < d.time + IGNORE_DUR then
             return true
         end
     end
-
     return false
 end
 
 local function markCollected(coin)
     table.insert(collectedCoins, {coin = coin, time = tick()})
-
     if #collectedCoins > MAX_IGNORED then
         table.remove(collectedCoins, 1)
     end
 end
 
 local function getNearestCoin(map, hrp)
-    if not map or not hrp then
-        return nil, math.huge
-    end
+    if not map or not hrp then return nil, math.huge end
 
     local container = map:FindFirstChild("CoinContainer")
-    if not container then
-        return nil, math.huge
-    end
+    if not container then return nil, math.huge end
 
     local target, minDist = nil, math.huge
 
@@ -700,28 +492,9 @@ local function tweenToTarget(hrp, targetPos)
 end
 
 -- ================= 📦 АВТО-КЕЙСЫ =================
-local Shop = nil
-local OpenCrate = nil
-local BoxController = nil
-
-local function refreshCrateRemotes()
-    pcall(function()
-        local Remotes = ReplicatedStorage:FindFirstChild("Remotes")
-        if not Remotes then
-            return
-        end
-
-        Shop = Remotes:FindFirstChild("Shop")
-        if not Shop then
-            return
-        end
-
-        OpenCrate = Shop:FindFirstChild("OpenCrate")
-        BoxController = Shop:FindFirstChild("BoxController")
-    end)
-end
-
-refreshCrateRemotes()
+local Shop = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Shop")
+local OpenCrate = Shop:WaitForChild("OpenCrate")
+local BoxController = Shop:WaitForChild("BoxController")
 
 -- Обычные кейсы
 local RANDOM_BOXES = {
@@ -749,13 +522,11 @@ local SUMMER_CURRENCIES = {
 }
 
 local function fireBoxController(payload)
-    if not BoxController then
-        return
-    end
-
     pcall(function()
         if typeof(BoxController.FireServer) == "function" then
             BoxController:FireServer(payload)
+        elseif typeof(BoxController.Fire) == "function" then
+            BoxController:Fire(payload)
         elseif typeof(BoxController.InvokeServer) == "function" then
             BoxController:InvokeServer(payload)
         end
@@ -763,10 +534,6 @@ local function fireBoxController(payload)
 end
 
 local function tryOpenCrate(boxId, currency)
-    if not OpenCrate then
-        return false, nil
-    end
-
     local ok, item = pcall(function()
         return OpenCrate:InvokeServer(boxId, "MysteryBox", currency)
     end)
@@ -811,18 +578,6 @@ end
 spawn(function()
     if not SETTINGS.AutoCrate or SETTINGS.CrateMode == "Off" then
         print("📦 [CRATE] Авто-кейсы выключены")
-        return
-    end
-
-    local timeout = 0
-    while SETTINGS.Enabled and timeout < 30 and (not OpenCrate or not BoxController) do
-        refreshCrateRemotes()
-        wait(1)
-        timeout = timeout + 1
-    end
-
-    if not OpenCrate or not BoxController then
-        warn("❌ [CRATE] Не найдены ремменты OpenCrate/BoxController. Авто-кейсы остановлены.")
         return
     end
 

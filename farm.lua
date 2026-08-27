@@ -1,5 +1,5 @@
 --[[
-Auto Farm + Auto Crate - MM2 | FINAL BUILD + RECONNECT FIX | NO SUMMER | RANDOM COINS
+Auto Farm + Auto Crate - MM2 | FINAL BUILD + RECONNECT FIX | NO SUMMER | ORIGINAL HEIGHT
 - Скорость 20 studs/sec
 - АВТО-КЕЙСЫ: только обычные кейсы, без Summer2026Box
 - РЕСПАВН: Health=0 + ChangeState(Dead)
@@ -7,7 +7,6 @@ Auto Farm + Auto Crate - MM2 | FINAL BUILD + RECONNECT FIX | NO SUMMER | RANDOM 
 - NoClip ULTIMATE + Антигравитация
 - YOffset = -2
 - CollectionRadius = 4.0
-- Рандомный выбор монет, чтобы не летели друг за другом
 - Исправленный reconnect под 319 / 317 / 304
 ]]
 
@@ -49,23 +48,12 @@ local SETTINGS = {
     YOffset = -2,
     ReconnectDelay = 2,
 
-    -- Рандомный выбор монет
-    RandomTargeting = true,
-    RandomCandidateCount = 12, -- среди скольких ближайших монет выбирать случайно
-    TargetSpread = 1.5, -- небольшой разброс точки подлёта
-
     -- Авто-кейсы
     AutoCrate = true,
     CrateMode = "All", -- All / Random / Off (All теперь означает только обычные кейсы)
     CrateDelay = 0.7,
     CrateFailDelay = 1.0,
 }
-
--- Рандомное зерно, чтобы разные клиенты выбирали разные монеты
-pcall(function()
-    local seed = math.floor((os.clock() * 1000000) + LocalPlayer.UserId + #game.JobId)
-    math.randomseed(seed)
-end)
 
 local MAX_IGNORED = 10
 local IGNORE_DUR = 3.0
@@ -300,10 +288,6 @@ local collectedCoins = {}
 local currentTween = nil
 local isMoving = false
 
--- Текущая цель
-local currentCoin = nil
-local currentTargetOffset = Vector3.new(0, 0, 0)
-
 -- ================= 🚫 NOCLIP ULTIMATE + АНТИГРАВИТАЦИЯ =================
 local noclipActive = false
 local antiGravForce = nil
@@ -511,9 +495,6 @@ LocalPlayer.CharacterAdded:Connect(function(char)
     isRoundActive = false
     disableNoClip()
 
-    currentCoin = nil
-    currentTargetOffset = Vector3.new(0, 0, 0)
-
     wait(1)
 
     local hum = char:FindFirstChildOfClass("Humanoid")
@@ -521,9 +502,6 @@ LocalPlayer.CharacterAdded:Connect(function(char)
         hum.Died:Connect(function()
             isRoundActive = false
             disableNoClip()
-
-            currentCoin = nil
-            currentTargetOffset = Vector3.new(0, 0, 0)
         end)
     end
 end)
@@ -609,8 +587,6 @@ local function forceRespawn()
     end
 
     isMoving = false
-    currentCoin = nil
-    currentTargetOffset = Vector3.new(0, 0, 0)
 
     print("💀 Применяю ChangeState(Dead) + Health=0...")
     pcall(function()
@@ -676,26 +652,6 @@ local function markCollected(coin)
     end
 end
 
-local function isCoinValid(coin)
-    if not coin then
-        return false
-    end
-
-    if not coin.Parent then
-        return false
-    end
-
-    if not coin:IsA("BasePart") then
-        return false
-    end
-
-    if isCollected(coin) then
-        return false
-    end
-
-    return true
-end
-
 local function getNearestCoin(map, hrp)
     if not map or not hrp then
         return nil, math.huge
@@ -719,52 +675,6 @@ local function getNearestCoin(map, hrp)
     end
 
     return target, minDist
-end
-
-local function getRandomCoin(map, hrp)
-    if not map or not hrp then
-        return nil, math.huge
-    end
-
-    local container = map:FindFirstChild("CoinContainer")
-    if not container then
-        return nil, math.huge
-    end
-
-    local candidates = {}
-
-    for _, part in next, container:GetChildren() do
-        if part:IsA("BasePart") and part.Name:lower():find("coin") and not isCollected(part) then
-            local dist = (part.Position - hrp.Position).Magnitude
-            table.insert(candidates, {part = part, dist = dist})
-        end
-    end
-
-    if #candidates == 0 then
-        return nil, math.huge
-    end
-
-    table.sort(candidates, function(a, b)
-        return a.dist < b.dist
-    end)
-
-    local candidateCount = SETTINGS.RandomCandidateCount or 12
-    local poolSize = math.min(candidateCount, #candidates)
-
-    if poolSize < 1 then
-        poolSize = 1
-    end
-
-    local chosen = candidates[math.random(1, poolSize)]
-    return chosen.part, chosen.dist
-end
-
-local function chooseNextCoin(map, hrp)
-    if SETTINGS.RandomTargeting then
-        return getRandomCoin(map, hrp)
-    else
-        return getNearestCoin(map, hrp)
-    end
 end
 
 -- ================= 🚀 TWEEN =================
@@ -953,13 +863,13 @@ end)
 setupRoundDetection()
 
 local coinCounter = 0
+local lastTarget = nil
 
 spawn(function()
     print("✅ AUTO FARM + AUTO CRATE ACTIVE")
     print("   Speed: " .. SETTINGS.MoveSpeed .. " | YOffset: " .. SETTINGS.YOffset)
     print("   💀 Респавн: при " .. SETTINGS.MaxBagCoins .. " монетах")
     print("   📦 Авто-кейсы: только обычные")
-    print("   🎲 Рандомный выбор монет: " .. tostring(SETTINGS.RandomTargeting))
     print("   🎯 Путь: MainGUI.Lobby.Dock.CoinBags...")
     print("")
 
@@ -983,9 +893,6 @@ spawn(function()
                 end
 
                 isMoving = false
-                currentCoin = nil
-                currentTargetOffset = Vector3.new(0, 0, 0)
-
                 hrp.CFrame = CFrame.new(hrp.Position.X, 50, hrp.Position.Z)
                 wait(2)
                 return
@@ -1002,8 +909,6 @@ spawn(function()
                 end
 
                 isMoving = false
-                currentCoin = nil
-                currentTargetOffset = Vector3.new(0, 0, 0)
 
                 if SETTINGS.AutoRespawn and not isRespawning then
                     forceRespawn()
@@ -1026,39 +931,23 @@ spawn(function()
                 return
             end
 
-            -- Если текущая монета больше не валидна, выбираем новую
-            if not isCoinValid(currentCoin) then
-                if currentTween then
-                    currentTween:Cancel()
-                    currentTween = nil
-                end
+            local coin, dist = getNearestCoin(map, hrp)
 
-                isMoving = false
-
-                currentCoin = chooseNextCoin(map, hrp)
-
-                if currentCoin then
-                    local spread = SETTINGS.TargetSpread or 0
-
-                    currentTargetOffset = Vector3.new(
-                        (math.random(-1000, 1000) / 1000) * spread,
-                        0,
-                        (math.random(-1000, 1000) / 1000) * spread
-                    )
-                else
-                    currentTargetOffset = Vector3.new(0, 0, 0)
-                    wait(SETTINGS.LoopDelay)
-                    return
-                end
+            if not coin then
+                lastTarget = nil
+                wait(SETTINGS.LoopDelay)
+                return
             end
 
-            local dist = (currentCoin.Position - hrp.Position).Magnitude
+            local targetPos = Vector3.new(
+                coin.Position.X,
+                coin.Position.Y + SETTINGS.YOffset,
+                coin.Position.Z
+            )
 
             if dist <= SETTINGS.CollectionRadius then
-                markCollected(currentCoin)
-                currentCoin = nil
-                currentTargetOffset = Vector3.new(0, 0, 0)
-
+                markCollected(coin)
+                lastTarget = nil
                 coinCounter = coinCounter + 1
 
                 if coinCounter % 10 == 0 then
@@ -1068,13 +957,8 @@ spawn(function()
                 return
             end
 
-            local targetPos = Vector3.new(
-                currentCoin.Position.X + currentTargetOffset.X,
-                currentCoin.Position.Y + SETTINGS.YOffset,
-                currentCoin.Position.Z + currentTargetOffset.Z
-            )
-
-            if not isMoving then
+            if not isMoving or lastTarget ~= coin then
+                lastTarget = coin
                 tweenToTarget(hrp, targetPos)
             end
         end)

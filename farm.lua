@@ -502,11 +502,11 @@ spawn(function()
         
         wait(SETTINGS.LoopDelay)
     end
-        -- ================= 🔌 RECONNECT PATCH =================
--- Вставить в самый конец скрипта, ничего не удаляя.
+      -- ================= 🔌 RECONNECT FIX v2 =================
+-- Вставить в самый конец скрипта.
+-- Если до этого был старый патч - удалить его.
 do
-    -- Глушим старый реконнект из оригинального скрипта, если мы в том же скрипте.
-    -- Если вставляешь как отдельный скрипт, эта строка просто не найдёт старую переменную.
+    -- Пытаемся заглушить старый реконнект, если патч вставлен в тот же скрипт.
     pcall(function()
         isReconnecting = true
     end)
@@ -515,6 +515,7 @@ do
     local TeleportService = game:GetService("TeleportService")
     local GuiService = game:GetService("GuiService")
     local RunService = game:GetService("RunService")
+    local VirtualInputManager = game:GetService("VirtualInputManager")
 
     local CoreGui = nil
     pcall(function()
@@ -554,7 +555,7 @@ do
         "server has shut down",
         "check your internet",
 
-        -- Русский на всякий случай
+        -- Русский
         "отключ",
         "соединение",
         "тайм-аут",
@@ -562,6 +563,7 @@ do
         "не удалось подключиться",
         "проверьте интернет",
         "сервер выключен",
+        "подключиться заново",
     }
 
     local reconnectFixActive = false
@@ -589,38 +591,113 @@ do
         return false, nil
     end
 
+    local function tryClickReconnectButtons(root)
+        pcall(function()
+            if not root then
+                return
+            end
+
+            local descendants = root:GetDescendants()
+
+            for _, btn in ipairs(descendants) do
+                if btn:IsA("TextButton") then
+                    local txt = tostring(btn.Text or ""):lower()
+
+                    if
+                        txt:find("reconnect")
+                        or txt:find("try again")
+                        or txt:find("retry")
+                        or txt:find("перезайти")
+                        or txt:find("повторить")
+                        or txt:find("подключиться заново")
+                        or txt:find("заново")
+                    then
+                        local bp = btn.AbsolutePosition
+                        local bs = btn.AbsoluteSize
+
+                        if bp and bs and bs.X > 0 and bs.Y > 0 then
+                            warn("🖱️ [RECONNECT FIX v2] Кликаю кнопку: " .. tostring(btn.Text))
+
+                            VirtualInputManager:SendMouseButtonEvent(
+                                bp.X + bs.X / 2,
+                                bp.Y + bs.Y / 2,
+                                0,
+                                true,
+                                game,
+                                1
+                            )
+
+                            wait(0.1)
+
+                            VirtualInputManager:SendMouseButtonEvent(
+                                bp.X + bs.X / 2,
+                                bp.Y + bs.Y / 2,
+                                0,
+                                false,
+                                game,
+                                1
+                            )
+                        end
+                    end
+                end
+            end
+        end)
+    end
+
     local function forceReconnectFix(reason)
         if reconnectFixActive then
             return
         end
 
         reconnectFixActive = true
-        warn("🔌 [RECONNECT FIX] Причина: " .. tostring(reason))
+        warn("🔌 [RECONNECT FIX v2] Причина: " .. tostring(reason))
 
+        -- Сначала пробуем нажать кнопку Reconnect / Try Again, если она есть
+        spawn(function()
+            wait(0.5)
+
+            if CoreGui then
+                tryClickReconnectButtons(CoreGui)
+            end
+        end)
+
+        -- Потом пробуем TeleportService
         spawn(function()
             wait(reconnectDelay)
 
             for attempt = 1, 6 do
-                local ok, err = pcall(function()
-                    TeleportService:Teleport(game.PlaceId, Players.LocalPlayer)
-                end)
+                local methods = {
+                    function()
+                        TeleportService:Teleport(game.PlaceId, Players.LocalPlayer)
+                    end,
 
-                if not ok then
-                    ok, err = pcall(function()
+                    function()
                         TeleportService:Teleport(game.PlaceId)
-                    end)
+                    end,
+
+                    function()
+                        TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, Players.LocalPlayer)
+                    end,
+
+                    function()
+                        TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId)
+                    end,
+                }
+
+                for _, method in ipairs(methods) do
+                    local ok, err = pcall(method)
+
+                    if ok then
+                        warn("🔌 [RECONNECT FIX v2] Teleport вызван, попытка: " .. attempt)
+                        return
+                    end
                 end
 
-                if ok then
-                    warn("🔌 [RECONNECT FIX] Teleport вызван, попытка: " .. attempt)
-                    return
-                end
-
-                warn("🔌 [RECONNECT FIX] Попытка " .. attempt .. " ошибка: " .. tostring(err))
+                warn("🔌 [RECONNECT FIX v2] Попытка " .. attempt .. " не удалась")
                 wait(1.5 * attempt)
             end
 
-            warn("🔌 [RECONNECT FIX] TeleportService не смог перезапустить. Нужен внешний auto-rejoin или ручной перезаход.")
+            warn("🔌 [RECONNECT FIX v2] Ничего не помогло. Нужен внешний auto-rejoin или ручной перезаход.")
             wait(20)
             reconnectFixActive = false
         end)
@@ -632,9 +709,11 @@ do
         end)
     end
 
-    -- Ловим ErrorMessageChanged, если он сработает
+    -- Ловим ErrorMessageChanged
     pcall(function()
         GuiService.ErrorMessageChanged:Connect(function(errorMessage)
+            warn("[RECONNECT DEBUG] ErrorMessageChanged: " .. tostring(errorMessage))
+
             local hit, why = isDisconnectText(errorMessage)
             if hit then
                 forceReconnectFix("ErrorMessageChanged: " .. tostring(why))
@@ -642,10 +721,10 @@ do
         end)
     end)
 
-    -- Ловим системные ошибки через CoreGui / RobloxPromptGui
+    -- Агрессивный поиск ошибок в CoreGui
     pcall(function()
         if not CoreGui then
-            warn("⚠️ [RECONNECT FIX] CoreGui недоступен, prompt-ловушка не будет работать.")
+            warn("⚠️ [RECONNECT FIX v2] CoreGui недоступен, prompt-ловушка не будет работать.")
             return
         end
 
@@ -655,11 +734,11 @@ do
                     return
                 end
 
-                if obj:GetAttribute("RC_FIX_TEXT_HOOKED") then
+                if obj:GetAttribute("RC_FIX_TEXT_HOOKED_V2") then
                     return
                 end
 
-                obj:SetAttribute("RC_FIX_TEXT_HOOKED", true)
+                obj:SetAttribute("RC_FIX_TEXT_HOOKED_V2", true)
 
                 local function checkText()
                     local hit, why = isDisconnectText(obj.Text)
@@ -676,11 +755,11 @@ do
 
         local function hookRoot(root)
             pcall(function()
-                if root:GetAttribute("RC_FIX_HOOKED") then
+                if root:GetAttribute("RC_FIX_HOOKED_V2") then
                     return
                 end
 
-                root:SetAttribute("RC_FIX_HOOKED", true)
+                root:SetAttribute("RC_FIX_HOOKED_V2", true)
 
                 for _, desc in ipairs(root:GetDescendants()) do
                     scanObject(desc)
@@ -690,51 +769,38 @@ do
             end)
         end
 
-        local function attachPromptGui(promptGui)
-            hookRoot(promptGui)
-
-            local overlay = promptGui:FindFirstChild("promptOverlay")
-            if overlay then
-                hookRoot(overlay)
-
-                overlay.ChildAdded:Connect(function(child)
-                    wait(0.1)
-                    hookRoot(child)
-                end)
-            end
+        -- Хукаем все текущие GUI в CoreGui
+        for _, gui in ipairs(CoreGui:GetChildren()) do
+            hookRoot(gui)
         end
 
-        local promptGui = CoreGui:FindFirstChild("RobloxPromptGui")
-        if promptGui then
-            attachPromptGui(promptGui)
-        end
-
+        -- Хукаем новые GUI в CoreGui
         CoreGui.ChildAdded:Connect(function(child)
-            if child.Name == "RobloxPromptGui" then
-                wait(0.1)
-                attachPromptGui(child)
-            end
+            wait(0.1)
+            hookRoot(child)
         end)
     end)
 
-    -- Дополнительно ловим сетевые события, если они доступны
+    -- Сетевые события, если доступны
     pcall(function()
         local NetworkClient = game:GetService("NetworkClient")
 
         pcall(function()
             NetworkClient.ConnectionFailed:Connect(function(message)
+                warn("[RECONNECT DEBUG] NetworkClient.ConnectionFailed: " .. tostring(message))
                 forceReconnectFix("NetworkClient.ConnectionFailed: " .. tostring(message))
             end)
         end)
 
         pcall(function()
             NetworkClient.Disconnected:Connect(function(message)
+                warn("[RECONNECT DEBUG] NetworkClient.Disconnected: " .. tostring(message))
                 forceReconnectFix("NetworkClient.Disconnected: " .. tostring(message))
             end)
         end)
     end)
 
-    -- Перестраховка через PlayerRemoving
+    -- PlayerRemoving
     pcall(function()
         Players.PlayerRemoving:Connect(function(player)
             if player == Players.LocalPlayer then
@@ -743,9 +809,10 @@ do
         end)
     end)
 
-    -- Перестраховка через OnTeleport
+    -- OnTeleport
     pcall(function()
         local lp = Players.LocalPlayer
+
         if lp then
             lp.OnTeleport:Connect(function(state)
                 if state == Enum.TeleportState.Failed or state == Enum.TeleportState.Started then
@@ -755,7 +822,7 @@ do
         end
     end)
 
-    -- Перестраховка через Heartbeat
+    -- Heartbeat
     local consecutiveFailuresFix = 0
     RunService.Heartbeat:Connect(function()
         if not Players.LocalPlayer or not Players.LocalPlayer.Parent then
@@ -769,6 +836,5 @@ do
         end
     end)
 
-    print("✅ [RECONNECT FIX] Патч подключён: 319 / 317 / 304 / 267 / 279 / 529")
+    print("✅ [RECONNECT FIX v2] Патч подключён: 319 / 317 / 304 / 267 / 279 / 529")
 end
-end)

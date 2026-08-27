@@ -1,11 +1,12 @@
 --[[
-Auto Farm + Auto Crate - MM2 | FINAL BUILD + RECONNECT FIX | NO SUMMER
+Auto Farm + Auto Crate - MM2 | FINAL BUILD + RECONNECT FIX | NO SUMMER | FIXED HEIGHT
 - Скорость 20 studs/sec
 - АВТО-КЕЙСЫ: только обычные кейсы, без Summer2026Box
 - РЕСПАВН: Health=0 + ChangeState(Dead)
 - ПУТЬ К МОНЕТАМ: MainGUI.Lobby.Dock.CoinBags...
 - NoClip ULTIMATE + Антигравитация
-- YOffset = -3
+- YOffset = 0.5
+- CollectionRadius = 6.0
 - Исправленный reconnect под 319 / 317 / 304
 ]]
 
@@ -39,12 +40,12 @@ end
 local SETTINGS = {
     Enabled = true,
     MoveSpeed = 20,
-    CollectionRadius = 4.0,
+    CollectionRadius = 6.0,
     LoopDelay = 0.1,
     MaxBagCoins = 40,
     AutoRespawn = true,
     SpawnWaitTime = 3.0,
-    YOffset = -3,
+    YOffset = 0.5,
     ReconnectDelay = 2,
 
     -- Авто-кейсы

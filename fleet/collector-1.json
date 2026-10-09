@@ -1,1 +1,1 @@
-{"phone": "collector-1", "idx": 1, "role": "collector", "phase": "FARMCYCLE", "ts": 1791583173, "key_age_h": 28.1, "bat": "65%", "temp": "26C", "ram": "13586MB"}
+{"phone": "collector-1", "idx": 1, "role": "collector", "phase": "BOOT", "ts": 1791585419, "key_age_h": 4.5, "bat": "73%", "temp": "25C", "ram": "13713MB"}
